@@ -1,0 +1,37 @@
+{
+	"name": "pi-local",
+	"version": "0.1.0",
+	"type": "module",
+	"description": "Pi extension for configuring multiple local LLM inference engine connections.",
+	"license": "MIT",
+	"keywords": [
+		"pi-package"
+	],
+	"engines": {
+		"node": ">=22"
+	},
+	"scripts": {
+		"check": "biome check *.ts *.json src test && tsc --noEmit && vitest run",
+		"format": "biome check --write *.ts *.json src test",
+		"typecheck": "tsc --noEmit",
+		"test": "vitest run"
+	},
+	"pi": {
+		"extensions": [
+			"./index.ts"
+		]
+	},
+	"peerDependencies": {
+		"@earendil-works/pi-ai": "*",
+		"@earendil-works/pi-coding-agent": "*"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "^2.4.15",
+		"@earendil-works/pi-ai": "0.75.5",
+		"@earendil-works/pi-coding-agent": "0.75.5",
+		"@types/node": "^22.19.19",
+		"tsx": "^4.22.3",
+		"typescript": "^6.0.3",
+		"vitest": "^4.1.7"
+	}
+}
