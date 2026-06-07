@@ -13,6 +13,7 @@ interface OmlxModelsStatusResponse {
 		thinking_default?: boolean | null;
 		preserve_thinking_default?: boolean | null;
 		model_type?: string | null;
+		config_model_type?: string | null;
 		loaded?: boolean;
 		estimated_size?: number;
 	}>;
@@ -73,6 +74,7 @@ export interface DiscoveredModel {
 	modelType?: string;
 	sizeBytes?: number;
 	reasoning?: boolean;
+	leftExtras?: string; // internal: quant/publisher for LM Studio display
 }
 
 export interface PickerResult {
@@ -110,27 +112,43 @@ async function queryOmlx(
 		if (type !== "llm" && type !== "vlm") continue;
 
 		const alias = entry.model_alias || entry.display_name || entry.id;
-		const sizeGb = entry.estimated_size
-			? `, ${formatBytes(entry.estimated_size)}`
-			: "";
-		const ctx = entry.max_context_window
-			? `, ctx:${formatContext(entry.max_context_window)}`
-			: "";
-		const icon = entry.loaded ? "✅" : "  ";
+		const configModelType = (entry.config_model_type || type).toLowerCase();
 
 		const reasoning = entry.thinking_default === true ? true : undefined;
 
 		models.push({
 			id: entry.id,
 			displayName: alias,
-			description: `${icon}${alias}${sizeGb}${ctx}, ${type}`,
+			description: "", // filled after sorting
 			loaded: entry.loaded === true,
 			contextWindow: entry.max_context_window,
 			maxTokens: entry.max_tokens,
-			modelType: type,
+			modelType: `${type}/${configModelType}`,
 			sizeBytes: entry.estimated_size,
 			reasoning,
 		});
+	}
+
+	// Sort by display name (case-insensitive)
+	models.sort((a, b) =>
+		a.displayName.localeCompare(b.displayName, undefined, {
+			sensitivity: "base",
+		}),
+	);
+
+	// Build descriptions with aligned padding
+	const maxNameLen =
+		models.length > 0
+			? Math.max(...models.map((m) => m.displayName.length))
+			: 0;
+	for (const model of models) {
+		const padded = model.displayName.padEnd(maxNameLen + 4);
+		const sizeGb = model.sizeBytes ? `${formatBytes(model.sizeBytes)}` : "";
+		const ctx = model.contextWindow
+			? `, ctx:${formatContext(model.contextWindow)}`
+			: "";
+		const typeStr = model.modelType ? `, ${model.modelType}` : "";
+		model.description = `${padded}${sizeGb}${ctx}${typeStr}`;
 	}
 
 	return { apiType: "omlx", models, status };
@@ -149,31 +167,64 @@ async function queryLmStudio(
 	const models: DiscoveredModel[] = [];
 
 	for (const entry of res.models) {
-		const type = (entry.type || "").toLowerCase();
-		if (type !== "llm" && type !== "vlm") continue;
+		const rawType = (entry.type || "").toLowerCase();
+		if (rawType !== "llm" && rawType !== "vlm") continue;
 
 		const loaded = (entry.loaded_instances?.length ?? 0) > 0;
-		const quant = entry.quantization ? `${entry.quantization.name}/` : "";
-		const arch = entry.architecture ? `${quant}${entry.architecture}` : quant;
-		const pub = entry.publisher ? `/${entry.publisher}` : "";
-		const sizeGb = entry.size_bytes ? `, ${formatBytes(entry.size_bytes)}` : "";
-		const ctx = entry.max_context_length
-			? `, ctx:${formatContext(entry.max_context_length)}`
-			: "";
-		const icon = loaded ? "✅" : "  ";
+		const quant = entry.quantization?.name || "";
+		const pub = entry.publisher || "";
+		const leftExtras = [quant, pub].filter(Boolean).join("/");
+
+		// Right column: format/type/architecture (pass through as-is, only lowercase type)
+		const format = entry.format || "";
+		const architecture = entry.architecture || "";
+		const modelType = [format, rawType, architecture].filter(Boolean).join("/");
 
 		const reasoning = entry.capabilities?.reasoning ? true : undefined;
 
 		models.push({
 			id: entry.key,
 			displayName: entry.display_name || entry.key,
-			description: `${icon}${entry.display_name || entry.key} (${arch}${pub})${sizeGb}${ctx}`,
+			description: "", // filled after sorting
 			loaded,
 			contextWindow: entry.max_context_length,
-			modelType: type,
+			modelType,
 			sizeBytes: entry.size_bytes,
 			reasoning,
+			leftExtras,
 		});
+	}
+
+	// Sort by display name (case-insensitive)
+	models.sort((a, b) =>
+		a.displayName.localeCompare(b.displayName, undefined, {
+			sensitivity: "base",
+		}),
+	);
+
+	// Build descriptions with aligned padding
+	const maxCombinedLen =
+		models.length > 0
+			? Math.max(
+					...models.map((m) => {
+						const extras = (m as { leftExtras?: string }).leftExtras;
+						return m.displayName.length + (extras ? extras.length : 0);
+					}),
+				)
+			: 0;
+	for (const model of models) {
+		const extras = (model as { leftExtras?: string }).leftExtras;
+		const extrasLen = extras ? extras.length : 0;
+		const leftColLen = maxCombinedLen + 4;
+		const padding = leftColLen - model.displayName.length - extrasLen - 3; // -3 for " ()"
+		const padded = " ".repeat(padding);
+		const extrasStr = extras ? ` (${extras})` : "";
+		const sizeGb = model.sizeBytes ? `${formatBytes(model.sizeBytes)}` : "";
+		const ctx = model.contextWindow
+			? `, ctx:${formatContext(model.contextWindow)}`
+			: "";
+		const typeStr = model.modelType ? `, ${model.modelType}` : "";
+		model.description = `${model.displayName}${extrasStr}${padded}${sizeGb}${ctx}${typeStr}`;
 	}
 
 	return { apiType: "lmstudio", models };
@@ -353,9 +404,9 @@ async function execJsonApi(
 }
 
 function formatBytes(bytes: number): string {
-	return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)}G`;
+	return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)}`.padStart(6, " ") + "G";
 }
 
 function formatContext(tokens: number): string {
-	return `${Math.round(tokens / 1024)}k`;
+	return `${Math.round(tokens / 1024)}`.padStart(4, " ") + "k";
 }
