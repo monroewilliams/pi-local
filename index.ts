@@ -222,7 +222,7 @@ export default function (pi: ExtensionAPI): void {
 
 				let title = `using base url: ${selectedConnection.baseUrl}`;
 				if (result.apiType === "omlx" && result.status) {
-					title += `\noMLX: ${result.status.models_loaded}/${result.status.models_discovered} loaded, ${result.status.models_loading} loading, using ${result.status.model_memory_used_formatted} of ${result.status.model_memory_max_formatted}`;
+					title += `\noMLX ${result.status.version}: ${result.status.models_loaded}/${result.status.models_discovered} loaded, ${result.status.models_loading} loading, using ${result.status.model_memory_used_formatted} of ${result.status.model_memory_max_formatted}`;
 				}
 				title += "\nAvailable Models:";
 				const choice = await ctx.ui.select(title, options);

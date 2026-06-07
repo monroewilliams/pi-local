@@ -26,6 +26,7 @@ interface OmlxApiStatusResponse {
 	models_discovered?: number;
 	model_memory_used_formatted?: string;
 	model_memory_max_formatted?: string;
+	version?: string;
 }
 
 interface LmStudioModelsResponse {
