@@ -1,12 +1,21 @@
 {
-	"name": "pi-local",
+	"name": "@monroewilliams/pi-local",
 	"version": "0.1.0",
 	"type": "module",
 	"description": "Pi extension for configuring multiple local LLM inference engine connections.",
+	"main": "./index.ts",
+	"author": "Monroe Williams",
 	"license": "MIT",
 	"keywords": [
 		"pi-package"
 	],
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/monroewilliams/pi-local.git"
+	},
+	"bugs": {
+		"url": "https://github.com/monroewilliams/pi-local/issues"
+	},
 	"engines": {
 		"node": ">=22"
 	},

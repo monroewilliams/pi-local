@@ -405,9 +405,11 @@ async function execJsonApi(
 }
 
 function formatBytes(bytes: number): string {
-	return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)}`.padStart(6, " ") + "G";
+	return `${((bytes / (1024 * 1024 * 1024)).toFixed(1)).padStart(6, " ")}G`;
 }
 
 function formatContext(tokens: number): string {
-	return `${Math.round(tokens / 1024)}`.padStart(4, " ") + "k";
+	return `${Math.round(tokens / 1024)
+		.toString()
+		.padStart(4, " ")}k`;
 }
