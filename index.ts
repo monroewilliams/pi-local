@@ -237,7 +237,8 @@ export default function (pi: ExtensionAPI): void {
 					const model = result.models[modelIdx];
 
 					const action = model.loaded ? "unload" : "load";
-					const success = model.loaded
+					ctx.ui.notify(`${action === "load" ? "Loading" : "Unloading"} ${model.displayName}...`);
+					const response = model.loaded
 						? await unloadModel(
 								selectedConnection.baseUrl,
 								selectedConnection.apiKey,
@@ -250,24 +251,17 @@ export default function (pi: ExtensionAPI): void {
 								model.id,
 								result.apiType,
 							);
-
-					if (success) {
-						ctx.ui.notify(
-							`${action === "load" ? "Loaded" : "Unloaded"}: ${model.displayName}`,
-						);
-						// Re-query to refresh model list
-						ctx.ui.setStatus("local-model", "Refreshing...");
-						const refreshed = await queryConnection(
-							selectedConnection.baseUrl,
-							selectedConnection.apiKey,
-						);
-						ctx.ui.setStatus("local-model", undefined);
-						result.models = refreshed.models;
-						result.status = refreshed.status;
-						result.apiType = refreshed.apiType;
-					} else {
-						ctx.ui.notify(`Failed to ${action} model.`, "error");
-					}
+					ctx.ui.notify(JSON.stringify(response, null, 2));
+					// Re-query to refresh model list
+					ctx.ui.setStatus("local-model", "Refreshing...");
+					const refreshed = await queryConnection(
+						selectedConnection.baseUrl,
+						selectedConnection.apiKey,
+					);
+					ctx.ui.setStatus("local-model", undefined);
+					result.models = refreshed.models;
+					result.status = refreshed.status;
+					result.apiType = refreshed.apiType;
 				} else {
 					// Model selected
 					const modelIdx = result.models.findIndex(

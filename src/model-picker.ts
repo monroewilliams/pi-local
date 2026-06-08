@@ -285,20 +285,24 @@ export async function loadModel(
 	apiKey: string,
 	modelId: string,
 	apiType: ApiType,
-): Promise<boolean> {
+): Promise<unknown> {
 	switch (apiType) {
 		case "omlx":
 			return execApi(
 				`${baseUrl}/admin/api/models/${modelId}/load`,
 				apiKey,
 				"POST",
+				{},
 			);
 		case "lmstudio":
-			return execJsonApi(`${baseUrl}/api/v1/models/load`, apiKey, "POST", {
-				model: modelId,
-			});
+			return execApi(
+				`${baseUrl}/api/v1/models/load`,
+				apiKey,
+				"POST",
+				{ model: modelId },
+			);
 		case "openai":
-			return false; // load not supported
+			return { error: "load not supported" };
 	}
 }
 
@@ -307,17 +311,19 @@ export async function unloadModel(
 	apiKey: string,
 	modelId: string,
 	apiType: ApiType,
-): Promise<boolean> {
+): Promise<unknown> {
 	switch (apiType) {
 		case "omlx":
-			// oMLX unload needs a session cookie from login
 			return execOmlxUnload(baseUrl, apiKey, modelId);
 		case "lmstudio":
-			return execJsonApi(`${baseUrl}/api/v1/models/unload`, apiKey, "POST", {
-				instance_id: modelId,
-			});
+			return execApi(
+				`${baseUrl}/api/v1/models/unload`,
+				apiKey,
+				"POST",
+				{ instance_id: modelId },
+			);
 		case "openai":
-			return false;
+			return { error: "unload not supported" };
 	}
 }
 
@@ -325,26 +331,26 @@ async function execOmlxUnload(
 	baseUrl: string,
 	apiKey: string,
 	modelId: string,
-): Promise<boolean> {
+): Promise<unknown> {
 	// Login to get session cookie
 	const loginRes = await fetch(`${baseUrl}/admin/api/login`, {
 		method: "POST",
 		headers: {
 			"Content-Type": "application/json",
-			Authorization: `Bearer ${apiKey}`,
 		},
 		body: JSON.stringify({ api_key: apiKey }),
 	});
 	const setCookie = loginRes.headers
 		.get("set-cookie")
 		?.match(/omlx_admin_session=([^;]*)/i)?.[1];
-	if (!setCookie) return false;
+	if (!setCookie) return { error: "failed to get session cookie" };
 
 	const res = await fetch(`${baseUrl}/admin/api/models/${modelId}/unload`, {
 		method: "POST",
 		headers: { Cookie: `omlx_admin_session=${setCookie}` },
 	});
-	return res.ok;
+	if (!res.ok) return { error: `HTTP ${res.status}` };
+	return res.json();
 }
 
 // ============================================================================
@@ -373,24 +379,8 @@ async function execApi(
 	url: string,
 	apiKey: string,
 	method = "POST",
-): Promise<boolean> {
-	try {
-		const res = await fetch(url, {
-			method,
-			headers: { Authorization: `Bearer ${apiKey}` },
-		});
-		return res.ok;
-	} catch {
-		return false;
-	}
-}
-
-async function execJsonApi(
-	url: string,
-	apiKey: string,
-	method: string,
-	body: unknown,
-): Promise<boolean> {
+	body?: unknown,
+): Promise<unknown> {
 	try {
 		const res = await fetch(url, {
 			method,
@@ -398,11 +388,11 @@ async function execJsonApi(
 				"Content-Type": "application/json",
 				Authorization: `Bearer ${apiKey}`,
 			},
-			body: JSON.stringify(body),
+			...(body !== undefined && { body: JSON.stringify(body) }),
 		});
-		return res.ok;
-	} catch {
-		return false;
+		return res.ok ? res.json() : { error: `HTTP ${res.status}` };
+	} catch (err) {
+		return { error: err instanceof Error ? err.message : String(err) };
 	}
 }
 
