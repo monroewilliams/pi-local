@@ -149,7 +149,8 @@ async function queryOmlx(
 			? `, ctx:${formatContext(model.contextWindow)}`
 			: "";
 		const typeStr = model.modelType ? `, ${model.modelType}` : "";
-		model.description = `${padded}${sizeGb}${ctx}${typeStr}`;
+		const icon = model.loaded ? "✅" : "  ";
+		model.description = `${icon} ${padded}${sizeGb}${ctx}${typeStr}`;
 	}
 
 	return { apiType: "omlx", models, status };
@@ -225,7 +226,8 @@ async function queryLmStudio(
 			? `, ctx:${formatContext(model.contextWindow)}`
 			: "";
 		const typeStr = model.modelType ? `, ${model.modelType}` : "";
-		model.description = `${model.displayName}${extrasStr}${padded}${sizeGb}${ctx}${typeStr}`;
+		const icon = model.loaded ? "✅" : "  ";
+		model.description = `${icon} ${model.displayName}${extrasStr}${padded}${sizeGb}${ctx}${typeStr}`;
 	}
 
 	return { apiType: "lmstudio", models };
