@@ -1,5 +1,7 @@
 import { platform } from "node:os";
+import { SettingsManager, getAgentDir } from "@earendil-works/pi-coding-agent";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { toProviderConfig } from "./src/provider.ts";
 import {
 	DEFAULT_LOCAL_BASE_URL,
 	isDirectKey,
@@ -17,65 +19,54 @@ export default function (pi: ExtensionAPI): void {
 	// Auto-register the saved default model at startup so Pi can restore it.
 	// Reads defaultProvider/defaultModel from settings.json, looks up the
 	// connection in auth.json, and registers a minimal provider config.
-	(async () => {
-		try {
-			const { AuthStorage, SettingsManager } = await import(
-				"@earendil-works/pi-coding-agent"
-			);
-			const storage = AuthStorage.create();
-			const settings = SettingsManager.create(
-				process.cwd(),
-				(await import("@earendil-works/pi-coding-agent")).getAgentDir(),
-			);
-			const savedProvider = settings.getDefaultProvider();
-			const savedModelId = settings.getDefaultModel();
-			if (!savedProvider || !savedModelId) return;
+	// Synchronous registration ensures Pi sees models at startup.
+	try {
+		const settings = SettingsManager.create(
+			process.cwd(),
+			getAgentDir(),
+		);
+		const savedProvider = settings.getDefaultProvider();
+		const savedModelId = settings.getDefaultModel();
+		if (savedProvider && savedModelId) {
 			// Only register if the default provider looks like a local URL
 			if (
-				!savedProvider.startsWith("http://") &&
-				!savedProvider.startsWith("https://")
-			)
-				return;
+				savedProvider.startsWith("http://") ||
+				savedProvider.startsWith("https://")
+			) {
+				const storedConn = getConnection(savedProvider);
+				if (storedConn) {
+					// Use saved model metadata if available and matches the default model
+					const savedModel = storedConn.model;
+					const model =
+						savedModel && savedModel.id === savedModelId
+							? {
+									id: savedModel.id,
+									displayName: savedModel.displayName,
+									description: savedModel.displayName,
+									loaded: false,
+									contextWindow: savedModel.contextWindow,
+									maxTokens: savedModel.maxTokens,
+									reasoning: savedModel.reasoning,
+								}
+							: {
+									id: savedModelId,
+									displayName: savedModelId,
+									description: savedModelId,
+									loaded: false,
+								};
 
-			const storedConn = getConnection(savedProvider);
-			if (!storedConn) return;
-
-			const apiKey = await storage.getApiKey(savedProvider, {
-				includeFallback: false,
-			});
-			if (apiKey === undefined) return;
-
-			// Use saved model metadata if available and matches the default model
-			const savedModel = storedConn.model;
-			const model =
-				savedModel && savedModel.id === savedModelId
-					? {
-							id: savedModel.id,
-							displayName: savedModel.displayName,
-							description: savedModel.displayName,
-							loaded: false,
-							contextWindow: savedModel.contextWindow,
-							maxTokens: savedModel.maxTokens,
-							reasoning: savedModel.reasoning,
-						}
-					: {
-							id: savedModelId,
-							displayName: savedModelId,
-							description: savedModelId,
-							loaded: false,
-						};
-
-			const { toProviderConfig } = await import("./src/provider.ts");
-			const providerConfig = toProviderConfig(
-				[model],
-				savedProvider,
-				storedConn.apiKey,
-			);
-			pi.registerProvider(savedProvider, providerConfig);
-		} catch {
-			// Silently fail — /local-model still works manually
+					const providerConfig = toProviderConfig(
+						[model],
+						savedProvider,
+						storedConn.apiKey,
+					);
+					pi.registerProvider(savedProvider, providerConfig);
+				}
+			}
 		}
-	})();
+	} catch {
+		// Silently fail — /local-model still works manually
+	}
 
 	// /local-login: Add or remove connections
 	pi.registerCommand("local-login", {

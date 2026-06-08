@@ -42,7 +42,13 @@ Select a connection and model. Shows server stats (for oMLX), model size, contex
 
 ## Installation
 
-Check out this repository, and then add the extension to your Pi configuration in `~/.pi/agent/settings.json`:
+You can either install this directly with the pi command via npm:
+
+```bash
+pi install npm:@monroewilliams/pi-local
+```
+
+or check out this repository and add the extension to your Pi configuration in `~/.pi/agent/settings.json` (useful if you want to modify it to better suit your purposes):
 
 ```json
 {

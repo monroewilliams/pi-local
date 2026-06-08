@@ -4,7 +4,7 @@ import type {
 	ProviderConfig,
 	ProviderModelConfig,
 } from "@earendil-works/pi-coding-agent";
-import type { DiscoveredModel } from "./model-picker.ts";
+import type { DiscoveredModel } from "./model-picker";
 
 const DEFAULT_CONTEXT_WINDOW = 128000;
 const DEFAULT_MAX_TOKENS = 16384;
