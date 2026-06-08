@@ -17,9 +17,6 @@ export function normalizeBaseUrl(raw: string): string {
  * - Command: "!security find-generic-password ..."
  * - Empty string for no authentication
  */
-export function defaultKeyFormat(): string {
-	return "";
-}
 
 /**
  * Build the security add-generic-password command to store a key in the macOS keychain.

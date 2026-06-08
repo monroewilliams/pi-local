@@ -78,11 +78,6 @@ export interface DiscoveredModel {
 	leftExtras?: string; // internal: quant/publisher for LM Studio display
 }
 
-export interface PickerResult {
-	model: DiscoveredModel;
-	action: "select" | "load" | "unload";
-}
-
 export interface QueryResult {
 	apiType: ApiType;
 	models: DiscoveredModel[];
