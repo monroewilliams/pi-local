@@ -52,6 +52,7 @@ export default function (pi: ExtensionAPI): void {
 									contextWindow: savedModel.contextWindow,
 									maxTokens: savedModel.maxTokens,
 									reasoning: savedModel.reasoning,
+									modelType: savedModel.modelType,
 								}
 							: {
 									id: savedModelId,
@@ -285,6 +286,7 @@ export default function (pi: ExtensionAPI): void {
 							contextWindow: model.contextWindow,
 							maxTokens: model.maxTokens,
 							reasoning: model.reasoning,
+							modelType: model.modelType,
 						},
 					);
 

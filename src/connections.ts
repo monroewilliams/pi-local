@@ -10,6 +10,7 @@ export interface StoredConnection {
 		contextWindow?: number;
 		maxTokens?: number;
 		reasoning?: boolean;
+		modelType?: string;
 	};
 }
 
