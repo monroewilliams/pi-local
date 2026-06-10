@@ -44,7 +44,7 @@ function toProviderModel(m: DiscoveredModel): ProviderModelConfig {
 		id: m.id,
 		name: m.displayName,
 		reasoning: m.reasoning ?? false,
-		input: ["text"],
+		input: m.modelType?.includes("vlm") ? ["text", "image", "audio"] : ["text"],
 		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 		contextWindow: m.contextWindow ?? DEFAULT_CONTEXT_WINDOW,
 		maxTokens: m.maxTokens ?? DEFAULT_MAX_TOKENS,

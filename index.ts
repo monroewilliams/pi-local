@@ -8,12 +8,17 @@ import {
 	keychainStoreCommand,
 	normalizeBaseUrl,
 } from "./src/config.ts";
+import type { DiscoveredModel } from "./src/model-picker.ts";
 import {
 	addConnection,
 	getConnection,
 	listConnections,
 	removeConnection,
 } from "./src/connections.ts";
+
+function modelInputTypes(model: DiscoveredModel): string[] {
+	return model.modelType?.includes("vlm") ? ["text", "image", "audio"] : ["text"];
+}
 
 export default function (pi: ExtensionAPI): void {
 	// Auto-register the saved default model at startup so Pi can restore it.
@@ -300,7 +305,7 @@ export default function (pi: ExtensionAPI): void {
 						provider: selectedConnection.baseUrl,
 						baseUrl: `${selectedConnection.baseUrl}/v1`,
 						reasoning: model.reasoning ?? false,
-						input: ["text"],
+						input: modelInputTypes(model),
 						cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 						contextWindow: model.contextWindow ?? 128000,
 						maxTokens: model.maxTokens ?? 16384,
