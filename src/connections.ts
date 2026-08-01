@@ -1,5 +1,7 @@
-import type { AuthCredential } from "@earendil-works/pi-coding-agent";
-import { AuthStorage } from "@earendil-works/pi-coding-agent";
+import { execSync } from "node:child_process";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
 
 export interface StoredConnection {
 	baseUrl: string;
@@ -14,14 +16,46 @@ export interface StoredConnection {
 	};
 }
 
-function getStorage(): AuthStorage {
-	return AuthStorage.create();
+/** Resolve an API key that may be a direct key, $ENV_VAR, or !command. */
+export function resolveApiKey(raw: string): string {
+	if (!raw) return "";
+	if (raw.startsWith("!")) {
+		const command = raw.slice(1).trim();
+		try {
+			return execSync(command, { encoding: "utf-8", timeout: 10000 }).trim();
+		} catch {
+			return "";
+		}
+	}
+	if (raw.startsWith("$")) {
+		const varName = raw.replace(/^\$\{?/, "").replace(/\}$/, "");
+		return process.env[varName] ?? "";
+	}
+	return raw;
 }
 
-function hasCredential(
-	cred: ReturnType<AuthStorage["get"]>,
-): cred is { type: "api_key"; key: string } {
-	return !!(cred && cred.type === "api_key");
+function connectionsPath(): string {
+	const agentDir = getAgentDir();
+	return join(agentDir, "pi-local-connections.json");
+}
+
+interface ConnectionsData {
+	connections: Record<string, Omit<StoredConnection, "baseUrl">>;
+}
+
+function loadConnectionsData(): ConnectionsData {
+	const path = connectionsPath();
+	if (!existsSync(path)) return { connections: {} };
+	try {
+		return JSON.parse(readFileSync(path, "utf-8")) as ConnectionsData;
+	} catch {
+		return { connections: {} };
+	}
+}
+
+function saveConnectionsData(data: ConnectionsData): void {
+	const path = connectionsPath();
+	writeFileSync(path, JSON.stringify(data, null, 2));
 }
 
 export function addConnection(
@@ -29,40 +63,28 @@ export function addConnection(
 	apiKeyCommand: string,
 	model?: StoredConnection["model"],
 ): void {
-	const storage = getStorage();
-	const cred = {
-		type: "api_key" as const,
-		key: apiKeyCommand,
-		...(model && { model }),
-	} satisfies {
-		type: "api_key";
-		key: string;
-		model?: StoredConnection["model"];
-	};
-	storage.set(baseUrl, cred as AuthCredential);
+	const data = loadConnectionsData();
+	data.connections[baseUrl] = { apiKey: apiKeyCommand, ...(model && { model }) };
+	saveConnectionsData(data);
 }
 
 export function removeConnection(baseUrl: string): void {
-	const storage = getStorage();
-	storage.remove(baseUrl);
+	const data = loadConnectionsData();
+	delete data.connections[baseUrl];
+	saveConnectionsData(data);
 }
 
 export function listConnections(): StoredConnection[] {
-	const storage = getStorage();
-	const all = storage.list();
+	const data = loadConnectionsData();
 	const connections: StoredConnection[] = [];
 
-	for (const key of all) {
-		// Only treat URL-like keys as local connections
-		// Built-in providers use slugs like "anthropic", "openai", etc.
-		if (!key.startsWith("http://") && !key.startsWith("https://")) continue;
-		const cred = storage.get(key);
-		if (!hasCredential(cred)) continue;
-		const raw = cred as Record<string, unknown>;
+	for (const baseUrl of Object.keys(data.connections)) {
+		if (!baseUrl.startsWith("http://") && !baseUrl.startsWith("https://")) continue;
+		const entry = data.connections[baseUrl];
 		connections.push({
-			baseUrl: key,
-			apiKey: cred.key,
-			model: raw.model as StoredConnection["model"],
+			baseUrl,
+			apiKey: entry.apiKey,
+			model: entry.model,
 		});
 	}
 
@@ -70,13 +92,12 @@ export function listConnections(): StoredConnection[] {
 }
 
 export function getConnection(baseUrl: string): StoredConnection | undefined {
-	const storage = getStorage();
-	const cred = storage.get(baseUrl);
-	if (!hasCredential(cred)) return undefined;
-	const raw = cred as Record<string, unknown>;
+	const data = loadConnectionsData();
+	const entry = data.connections[baseUrl];
+	if (!entry) return undefined;
 	return {
 		baseUrl,
-		apiKey: cred.key,
-		model: raw.model as StoredConnection["model"],
+		apiKey: entry.apiKey,
+		model: entry.model,
 	};
 }

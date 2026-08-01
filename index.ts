@@ -14,6 +14,7 @@ import {
 	getConnection,
 	listConnections,
 	removeConnection,
+	resolveApiKey,
 } from "./src/connections.ts";
 
 function modelInputTypes(model: DiscoveredModel): string[] {
@@ -139,33 +140,16 @@ export default function (pi: ExtensionAPI): void {
 				return;
 			}
 
-			// Resolve API keys for all connections
-			const { AuthStorage } = await import("@earendil-works/pi-coding-agent");
-			const storage = AuthStorage.create();
-
+			// Resolve API keys for all connections (sync — no AuthStorage needed)
 			const resolvedConnections: Array<{
 				baseUrl: string;
 				apiKey: string;
 				apiKeyCommand: string;
-			}> = [];
-
-			const keyPromises = storedConnections.map(async (conn) => {
-				const apiKey = await storage.getApiKey(conn.baseUrl, {
-					includeFallback: false,
-				});
-				// apiKey can be "" for no-auth connections, or undefined if keychain lookup failed
-				if (apiKey !== undefined) {
-					const cred = storage.get(conn.baseUrl);
-					const apiKeyCommand =
-						cred?.type === "api_key" ? (cred.key ?? "") : "";
-					resolvedConnections.push({
-						baseUrl: conn.baseUrl,
-						apiKey,
-						apiKeyCommand,
-					});
-				}
+			}> = storedConnections.map((conn) => {
+				const apiKeyCommand = conn.apiKey;
+				const apiKey = resolveApiKey(apiKeyCommand);
+				return { baseUrl: conn.baseUrl, apiKey, apiKeyCommand };
 			});
-			await Promise.all(keyPromises);
 
 			if (resolvedConnections.length === 0) {
 				ctx.ui.notify(
