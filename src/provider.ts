@@ -47,18 +47,20 @@ function toModel(
  * - Models appearing in /model selector via refreshModels()
  * - Live catalog refresh when the model picker opens
  *
- * @param baseUrl       The server base URL (also used as provider id)
- * @param storedApiKey  Raw API key reference (!command, $ENV_VAR, or direct)
- * @param resolveApiKey Function to resolve the raw reference to an actual key
- * @param queryModels   Function to live-query available models from the server
+ * @param baseUrl         The server base URL (also used as provider id)
+ * @param storedApiKey    Raw API key reference (!command, $ENV_VAR, or direct)
+ * @param resolveApiKey   Function to resolve the raw reference to an actual key
+ * @param queryModels     Function to live-query available models from the server
+ * @param initialModels   Optional pre-populated models (from saved metadata)
  */
 export function createLocalProvider(
 	baseUrl: string,
 	storedApiKey: string,
 	resolveApiKey: (raw: string) => string,
 	queryModels: (url: string, key: string) => Promise<QueryResult>,
+	initialModels?: Model<"openai-completions">[],
 ): Provider<"openai-completions"> {
-	let models: Model<"openai-completions">[] = [];
+	let models: Model<"openai-completions">[] = initialModels ?? [];
 
 	return {
 		id: baseUrl,

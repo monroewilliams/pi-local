@@ -254,6 +254,7 @@ export async function showLocalPicker(
 	baseUrl: string,
 	queryModels: () => Promise<QueryResult>,
 	callbacks: LocalPickerCallbacks,
+	currentModelId?: string,
 ): Promise<DiscoveredModel | undefined> {
 	let result = await queryModels();
 	if (!result.models.length) {
@@ -261,7 +262,7 @@ export async function showLocalPicker(
 		return undefined;
 	}
 
-	let lastSelectedId: string | undefined;
+	let lastSelectedId = currentModelId;
 
 	while (true) {
 		const action = await ctx.ui.custom<LocalPickerAction>((tui, theme, _keybindings, done) => {

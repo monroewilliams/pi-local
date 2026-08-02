@@ -1,6 +1,7 @@
 import { platform } from "node:os";
 import { SettingsManager, getAgentDir } from "@earendil-works/pi-coding-agent";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { Model } from "@earendil-works/pi-ai";
 import { createLocalProvider, providerDisplayName } from "./src/provider.ts";
 import {
 	DEFAULT_LOCAL_BASE_URL,
@@ -9,13 +10,38 @@ import {
 	normalizeBaseUrl,
 } from "./src/config.ts";
 import type { DiscoveredModel } from "./src/model-picker.ts";
+import { queryConnection } from "./src/model-picker.ts";
 import {
 	addConnection,
 	getConnection,
 	listConnections,
 	removeConnection,
 	resolveApiKey,
+	type StoredConnection,
 } from "./src/connections.ts";
+
+// ============================================================================
+// Helpers
+// ============================================================================
+
+function toProviderModel(
+	baseUrl: string,
+	id: string,
+	meta: NonNullable<StoredConnection["knownModels"]>[string],
+): Model<"openai-completions"> {
+	return {
+		id,
+		name: meta.displayName,
+		api: "openai-completions",
+		provider: baseUrl,
+		baseUrl: `${baseUrl}/v1`,
+		reasoning: meta.reasoning ?? false,
+		input: meta.modelType?.includes("vlm") ? ["text", "image"] : ["text"],
+		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+		contextWindow: meta.contextWindow ?? 128000,
+		maxTokens: meta.maxTokens ?? 16384,
+	};
+}
 
 // ============================================================================
 // Startup: register all known connections as providers
@@ -26,35 +52,35 @@ function registerAllConnections(pi: ExtensionAPI): void {
 		const connections = listConnections();
 		for (const conn of connections) {
 			try {
-				const provider = createLocalProvider(
-					conn.baseUrl,
-					conn.apiKey,
-					resolveApiKey,
-					async (url: string, _key: string) => {
-						// At startup we skip network queries — providers will refresh on demand
-						// when the user opens /model or /local-model.
-						// Return cached model from saved metadata if available.
+				// Build initial models from cached knownModels
+				const initialModels: Model<"openai-completions">[] = [];
+				if (conn.knownModels) {
+					for (const [id, meta] of Object.entries(conn.knownModels)) {
+						initialModels.push(toProviderModel(conn.baseUrl, id, meta));
+					}
+				}
+
+			const provider = createLocalProvider(
+				conn.baseUrl,
+				conn.apiKey,
+				resolveApiKey,
+				async (url: string, key: string) => {
+					try {
+						return await queryConnection(url, key);
+					} catch {
+						// Return cached models on network failure
 						const stored = getConnection(url);
-						if (stored?.model) {
-							return {
-								apiType: "openai" as const,
-								models: [
-									{
-										id: stored.model.id,
-										displayName: stored.model.displayName,
-										description: stored.model.displayName,
-										loaded: false,
-										contextWindow: stored.model.contextWindow,
-										maxTokens: stored.model.maxTokens,
-										reasoning: stored.model.reasoning,
-										modelType: stored.model.modelType,
-									},
-								],
-							};
+						const models: DiscoveredModel[] = [];
+						if (stored?.knownModels) {
+							for (const [id, meta] of Object.entries(stored.knownModels)) {
+					models.push({ id, displayName: meta.displayName, description: meta.displayName, loaded: false, contextWindow: meta.contextWindow, maxTokens: meta.maxTokens, reasoning: meta.reasoning, modelType: meta.modelType });
+							}
 						}
-						return { apiType: "openai" as const, models: [] };
-					},
-				);
+						return { apiType: "openai" as const, models };
+					}
+				},
+				initialModels,
+			);
 				pi.registerProvider(provider);
 			} catch {
 				// Skip broken connections silently
@@ -66,58 +92,6 @@ function registerAllConnections(pi: ExtensionAPI): void {
 }
 
 // ============================================================================
-// Startup: restore saved default model
-// ============================================================================
-
-function restoreDefaultModel(pi: ExtensionAPI): void {
-	try {
-		const settings = SettingsManager.create(process.cwd(), getAgentDir());
-		const savedProvider = settings.getDefaultProvider();
-		const savedModelId = settings.getDefaultModel();
-
-		if (!savedProvider || !savedModelId) return;
-		if (
-			!savedProvider.startsWith("http://") &&
-			!savedProvider.startsWith("https://")
-		) return;
-
-		const storedConn = getConnection(savedProvider);
-		if (!storedConn) return;
-
-		// Build model from saved metadata
-		const savedModel = storedConn.model;
-		const model: DiscoveredModel =
-			savedModel && savedModel.id === savedModelId
-				? {
-						id: savedModel.id,
-						displayName: savedModel.displayName,
-						description: savedModel.displayName,
-						loaded: false,
-						contextWindow: savedModel.contextWindow,
-						maxTokens: savedModel.maxTokens,
-						reasoning: savedModel.reasoning,
-						modelType: savedModel.modelType,
-					}
-				: {
-						id: savedModelId,
-						displayName: savedModelId,
-						description: savedModelId,
-						loaded: false,
-					};
-
-		const provider = createLocalProvider(
-			savedProvider,
-			storedConn.apiKey,
-			resolveApiKey,
-			async () => ({ apiType: "openai" as const, models: [model] }),
-		);
-		pi.registerProvider(provider);
-	} catch {
-		// Silently fail — /local-model still works manually
-	}
-}
-
-// ============================================================================
 // Extension entry point
 // ============================================================================
 
@@ -125,10 +99,7 @@ export default function (pi: ExtensionAPI): void {
 	// Register all known connections at startup
 	registerAllConnections(pi);
 
-	// Restore saved default model (overwrites the cached-only registration above)
-	restoreDefaultModel(pi);
-
-	// /local-endpoints: Add or remove connections (renamed from /local-login)
+	//
 	pi.registerCommand("local-endpoints", {
 		description: "Configure local LLM connections (base URL + API key)",
 		handler: async (_args, ctx) => {
@@ -242,32 +213,36 @@ export default function (pi: ExtensionAPI): void {
 			const queryModels = async () =>
 				queryConnection(selectedConn.baseUrl, selectedConn.apiKey);
 
+			// Pre-select the currently active model
+			const settings = SettingsManager.create(process.cwd(), getAgentDir());
+			const currentModelId = settings.getDefaultModel();
+
 			// Open the custom picker
 			const model = await showLocalPicker(
 				ctx,
 				selectedConn.baseUrl,
 				queryModels,
 				{
-				onLoadUnload: async (model, action) => {
-					const current = await queryConnection(
-						selectedConn.baseUrl,
-						selectedConn.apiKey,
-					);
+					onLoadUnload: async (model, action) => {
+						const current = await queryConnection(
+							selectedConn.baseUrl,
+							selectedConn.apiKey,
+						);
 
-					const response =
-						action === "load"
-							? await loadModel(
-									selectedConn.baseUrl,
-									selectedConn.apiKey,
-									model.id,
-									current.apiType,
-							  )
-							: await unloadModel(
-									selectedConn.baseUrl,
-									selectedConn.apiKey,
-									model.id,
-									current.apiType,
-							  );
+						const response =
+							action === "load"
+								? await loadModel(
+										selectedConn.baseUrl,
+										selectedConn.apiKey,
+										model.id,
+										current.apiType,
+									)
+								: await unloadModel(
+										selectedConn.baseUrl,
+										selectedConn.apiKey,
+										model.id,
+										current.apiType,
+									);
 
 						if (
 							response &&
@@ -286,24 +261,33 @@ export default function (pi: ExtensionAPI): void {
 						);
 					},
 				},
+				currentModelId,
 			);
 
 			if (!model) return;
 
-			// Save model metadata to the connection
-			addConnection(selectedConn.baseUrl, selectedConn.apiKeyCommand, {
-				id: model.id,
-				displayName: model.displayName,
-				contextWindow: model.contextWindow,
-				maxTokens: model.maxTokens,
-				reasoning: model.reasoning,
-				modelType: model.modelType,
-			});
-
-			// Register provider with full model list (so /model sees all of them)
+			// Get fresh model list and sync knownModels to storage
 			const refreshed = await queryConnection(
 				selectedConn.baseUrl,
 				selectedConn.apiKey,
+			);
+			const knownModels: Record<string, NonNullable<StoredConnection["knownModels"]>[string]> = {};
+			for (const m of refreshed.models) {
+				knownModels[m.id] = {
+					displayName: m.displayName,
+					contextWindow: m.contextWindow,
+					maxTokens: m.maxTokens,
+					reasoning: m.reasoning,
+					modelType: m.modelType,
+				};
+			}
+			addConnection(selectedConn.baseUrl, selectedConn.apiKeyCommand, {
+				knownModels,
+			});
+
+			// Re-register provider with full model list (so /model sees all of them)
+			const initialModels = refreshed.models.map((m) =>
+				toProviderModel(selectedConn.baseUrl, m.id, knownModels[m.id]!),
 			);
 			const provider = createLocalProvider(
 				selectedConn.baseUrl,
@@ -311,6 +295,7 @@ export default function (pi: ExtensionAPI): void {
 				resolveApiKey,
 				async (url: string, key: string) =>
 					queryConnection(url, key),
+				initialModels,
 			);
 			pi.registerProvider(provider);
 

@@ -6,14 +6,17 @@ import { getAgentDir } from "@earendil-works/pi-coding-agent";
 export interface StoredConnection {
 	baseUrl: string;
 	apiKey: string;
-	model?: {
-		id: string;
-		displayName: string;
-		contextWindow?: number;
-		maxTokens?: number;
-		reasoning?: boolean;
-		modelType?: string;
-	};
+	/** All known models from the last successful query, keyed by id. */
+	knownModels?: Record<
+		string,
+		{
+			displayName: string;
+			contextWindow?: number;
+			maxTokens?: number;
+			reasoning?: boolean;
+			modelType?: string;
+		}
+	>;
 }
 
 /** Resolve an API key that may be a direct key, $ENV_VAR, or !command. */
@@ -61,10 +64,13 @@ function saveConnectionsData(data: ConnectionsData): void {
 export function addConnection(
 	baseUrl: string,
 	apiKeyCommand: string,
-	model?: StoredConnection["model"],
+	options?: { knownModels?: StoredConnection["knownModels"] },
 ): void {
 	const data = loadConnectionsData();
-	data.connections[baseUrl] = { apiKey: apiKeyCommand, ...(model && { model }) };
+	data.connections[baseUrl] = {
+		apiKey: apiKeyCommand,
+		knownModels: options?.knownModels ?? data.connections[baseUrl]?.knownModels,
+	};
 	saveConnectionsData(data);
 }
 
@@ -81,11 +87,7 @@ export function listConnections(): StoredConnection[] {
 	for (const baseUrl of Object.keys(data.connections)) {
 		if (!baseUrl.startsWith("http://") && !baseUrl.startsWith("https://")) continue;
 		const entry = data.connections[baseUrl];
-		connections.push({
-			baseUrl,
-			apiKey: entry.apiKey,
-			model: entry.model,
-		});
+		connections.push({ baseUrl, apiKey: entry.apiKey, knownModels: entry.knownModels });
 	}
 
 	return connections;
@@ -95,9 +97,5 @@ export function getConnection(baseUrl: string): StoredConnection | undefined {
 	const data = loadConnectionsData();
 	const entry = data.connections[baseUrl];
 	if (!entry) return undefined;
-	return {
-		baseUrl,
-		apiKey: entry.apiKey,
-		model: entry.model,
-	};
+	return { baseUrl, apiKey: entry.apiKey, knownModels: entry.knownModels };
 }
