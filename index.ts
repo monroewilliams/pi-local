@@ -285,6 +285,8 @@ export default function (pi: ExtensionAPI): void {
 				knownModels,
 			});
 
+			pi.unregisterProvider(selectedConn.baseUrl);
+			
 			// Re-register provider with full model list (so /model sees all of them)
 			const initialModels = refreshed.models.map((m) =>
 				toProviderModel(selectedConn.baseUrl, m.id, knownModels[m.id]!),

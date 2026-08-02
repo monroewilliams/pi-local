@@ -95,7 +95,13 @@ export function createLocalProvider(
 						if (envKey) key = envKey;
 					}
 
-					if (!key) return undefined;
+				if (!key) {
+					// Some local servers don't need an API key; pass a dummy
+					return {
+						auth: { apiKey: "unused", baseUrl: `${baseUrl}/v1` },
+						source: "pi-local config (no key required)",
+					};
+				}
 
 					return {
 						auth: { apiKey: key, baseUrl: `${baseUrl}/v1` },
