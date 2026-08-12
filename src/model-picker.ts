@@ -110,7 +110,7 @@ async function queryOmlx(
 		const alias = entry.model_alias || entry.display_name || entry.id;
 		const configModelType = (entry.config_model_type || type).toLowerCase();
 
-		const reasoning = entry.thinking_default === true ? true : undefined;
+		const reasoning = entry.thinking_default != null ? true : undefined;
 
 		models.push({
 			id: entry.id,

@@ -8,7 +8,7 @@ import type {
 } from "@earendil-works/pi-ai";
 import { stream, streamSimple } from "@earendil-works/pi-ai/compat";
 import type { ProviderStreamOptions } from "@earendil-works/pi-ai/compat";
-import type { DiscoveredModel, QueryResult } from "./model-picker.ts";
+import type { DiscoveredModel, QueryResult, ApiType } from "./model-picker.ts";
 
 const DEFAULT_CONTEXT_WINDOW = 128000;
 const DEFAULT_MAX_TOKENS = 16384;
@@ -21,10 +21,19 @@ export function providerDisplayName(baseUrl: string): string {
 	return baseUrl.replace(/^https?:\/\//, "").replace(/\/?$/, "");
 }
 
-function toModel(
+export function toModel(
 	m: DiscoveredModel,
 	providerId: string,
+	apiType?: ApiType,
 ): Model<"openai-completions"> {
+	let compat: Record<string, unknown> | undefined = undefined;
+	if (m.reasoning) {
+		if (apiType === "omlx") {
+			compat = { thinkingFormat: "qwen-chat-template" as const };
+		}
+		// LM Studio and generic OpenAI servers: no thinkingFormat for now
+		// (they may not support per-request thinking control via the API)
+	}
 	return {
 		id: m.id,
 		name: m.displayName,
@@ -32,6 +41,7 @@ function toModel(
 		provider: providerId,
 		baseUrl: `${providerId}/v1`,
 		reasoning: m.reasoning ?? false,
+		compat,
 		input: m.modelType?.includes("vlm") ? ["text", "image"] : ["text"],
 		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 		contextWindow: m.contextWindow ?? DEFAULT_CONTEXT_WINDOW,
@@ -61,6 +71,7 @@ export function createLocalProvider(
 	initialModels?: Model<"openai-completions">[],
 ): Provider<"openai-completions"> {
 	let models: Model<"openai-completions">[] = initialModels ?? [];
+	let detectedApiType: ApiType | undefined;
 
 	return {
 		id: baseUrl,
@@ -119,7 +130,8 @@ export function createLocalProvider(
 			const key = resolveApiKey(storedApiKey) || "";
 			try {
 				const result = await queryModels(baseUrl, key || "local");
-				models = result.models.map((m) => toModel(m, baseUrl));
+				detectedApiType = result.apiType;
+				models = result.models.map((m) => toModel(m, baseUrl, detectedApiType));
 			} catch {
 				// Keep existing cached models on failure
 			}

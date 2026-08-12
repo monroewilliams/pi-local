@@ -2,7 +2,7 @@ import { platform } from "node:os";
 import { SettingsManager, getAgentDir } from "@earendil-works/pi-coding-agent";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { Model } from "@earendil-works/pi-ai";
-import { createLocalProvider, providerDisplayName } from "./src/provider.ts";
+import { createLocalProvider, providerDisplayName, toModel } from "./src/provider.ts";
 import {
 	DEFAULT_LOCAL_BASE_URL,
 	isDirectKey,
@@ -24,24 +24,7 @@ import {
 // Helpers
 // ============================================================================
 
-function toProviderModel(
-	baseUrl: string,
-	id: string,
-	meta: NonNullable<StoredConnection["knownModels"]>[string],
-): Model<"openai-completions"> {
-	return {
-		id,
-		name: meta.displayName,
-		api: "openai-completions",
-		provider: baseUrl,
-		baseUrl: `${baseUrl}/v1`,
-		reasoning: meta.reasoning ?? false,
-		input: meta.modelType?.includes("vlm") ? ["text", "image"] : ["text"],
-		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-		contextWindow: meta.contextWindow ?? 128000,
-		maxTokens: meta.maxTokens ?? 16384,
-	};
-}
+
 
 // ============================================================================
 // Startup: register all known connections as providers
@@ -56,7 +39,7 @@ function registerAllConnections(pi: ExtensionAPI): void {
 				const initialModels: Model<"openai-completions">[] = [];
 				if (conn.knownModels) {
 					for (const [id, meta] of Object.entries(conn.knownModels)) {
-						initialModels.push(toProviderModel(conn.baseUrl, id, meta));
+						initialModels.push(toModel({ id, displayName: meta.displayName, description: meta.displayName, loaded: false, contextWindow: meta.contextWindow, maxTokens: meta.maxTokens, reasoning: meta.reasoning, modelType: meta.modelType }, conn.baseUrl));
 					}
 				}
 
@@ -289,7 +272,7 @@ export default function (pi: ExtensionAPI): void {
 			
 			// Re-register provider with full model list (so /model sees all of them)
 			const initialModels = refreshed.models.map((m) =>
-				toProviderModel(selectedConn.baseUrl, m.id, knownModels[m.id]!),
+				toModel(m, selectedConn.baseUrl, refreshed.apiType),
 			);
 			const provider = createLocalProvider(
 				selectedConn.baseUrl,
