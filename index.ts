@@ -39,7 +39,7 @@ function registerAllConnections(pi: ExtensionAPI): void {
 				const initialModels: Model<"openai-completions">[] = [];
 				if (conn.knownModels) {
 					for (const [id, meta] of Object.entries(conn.knownModels)) {
-						initialModels.push(toModel({ id, displayName: meta.displayName, description: meta.displayName, loaded: false, contextWindow: meta.contextWindow, maxTokens: meta.maxTokens, reasoning: meta.reasoning, modelType: meta.modelType }, conn.baseUrl));
+						initialModels.push(toModel({ id, displayName: meta.displayName, description: meta.displayName, loaded: false, contextWindow: meta.contextWindow, maxTokens: meta.maxTokens, reasoning: meta.reasoning, modelType: meta.modelType, pinned: meta.pinned, favorite: meta.favorite }, conn.baseUrl));
 					}
 				}
 
@@ -56,7 +56,7 @@ function registerAllConnections(pi: ExtensionAPI): void {
 						const models: DiscoveredModel[] = [];
 						if (stored?.knownModels) {
 							for (const [id, meta] of Object.entries(stored.knownModels)) {
-					models.push({ id, displayName: meta.displayName, description: meta.displayName, loaded: false, contextWindow: meta.contextWindow, maxTokens: meta.maxTokens, reasoning: meta.reasoning, modelType: meta.modelType });
+					models.push({ id, displayName: meta.displayName, description: meta.displayName, loaded: false, contextWindow: meta.contextWindow, maxTokens: meta.maxTokens, reasoning: meta.reasoning, modelType: meta.modelType, pinned: meta.pinned, favorite: meta.favorite });
 							}
 						}
 						return { apiType: "openai" as const, models };
@@ -262,6 +262,8 @@ export default function (pi: ExtensionAPI): void {
 					maxTokens: m.maxTokens,
 					reasoning: m.reasoning,
 					modelType: m.modelType,
+					pinned: m.pinned,
+					favorite: m.favorite,
 				};
 			}
 			addConnection(selectedConn.baseUrl, selectedConn.apiKeyCommand, {

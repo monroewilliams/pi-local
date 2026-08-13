@@ -41,24 +41,8 @@ function formatStatus(result: QueryResult): string | undefined {
 }
 
 function formatItem(m: DiscoveredModel): { label: string; description: string } {
-	const icon = m.loaded ? "✅" : "  ";
-	const label = `${icon} ${m.displayName}`;
-
-	const parts: string[] = [];
-	if (m.sizeBytes) {
-		parts.push(`${(m.sizeBytes / (1024 * 1024 * 1024)).toFixed(1)}G`);
-	}
-	if (m.contextWindow) {
-		parts.push(`ctx:${Math.round(m.contextWindow / 1024)}k`);
-	}
-	if (m.modelType) {
-		parts.push(m.modelType);
-	}
-	if (m.reasoning) {
-		parts.push("reasoning");
-	}
-
-	return { label, description: parts.join(" · ") };
+	const icon = m.pinned ? "📌" : m.loaded ? "✅" : m.favorite ? "⭐" : "  ";
+	return { label: `${icon} ${m.displayName}`, description: m.description };
 }
 
 // ============================================================================

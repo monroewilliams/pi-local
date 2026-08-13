@@ -15,6 +15,9 @@ interface OmlxModelsStatusResponse {
 		model_type?: string | null;
 		config_model_type?: string | null;
 		loaded?: boolean;
+		pinned?: boolean;
+		is_favorite?: boolean;
+		is_hidden?: boolean;
 		estimated_size?: number;
 	}>;
 }
@@ -74,6 +77,8 @@ export interface DiscoveredModel {
 	maxTokens?: number;
 	modelType?: string;
 	sizeBytes?: number;
+	pinned?: boolean;
+	favorite?: boolean;
 	reasoning?: boolean;
 	leftExtras?: string; // internal: quant/publisher for LM Studio display
 }
@@ -107,19 +112,24 @@ async function queryOmlx(
 		const type = entry.model_type.toLowerCase();
 		if (type !== "llm" && type !== "vlm") continue;
 
+		if (entry.is_hidden === true) continue;
+
 		const alias = entry.model_alias || entry.display_name || entry.id;
 		const configModelType = (entry.config_model_type || type).toLowerCase();
 
 		const reasoning = entry.thinking_default != null ? true : undefined;
+		const modelType = [reasoning?"🧠":"🤖", type, configModelType].filter(Boolean).join("/");
 
 		models.push({
 			id: entry.id,
 			displayName: alias,
 			description: "", // filled after sorting
 			loaded: entry.loaded === true,
+			pinned: entry.pinned === true,
+			favorite: entry.is_favorite === true,
 			contextWindow: entry.max_context_window,
 			maxTokens: entry.max_tokens,
-			modelType: `${type}/${configModelType}`,
+			modelType: modelType,
 			sizeBytes: entry.estimated_size,
 			reasoning,
 		});
@@ -132,20 +142,17 @@ async function queryOmlx(
 		}),
 	);
 
-	// Build descriptions with aligned padding
-	const maxNameLen =
-		models.length > 0
-			? Math.max(...models.map((m) => m.displayName.length))
-			: 0;
+	// Build descriptions with right-aligned numeric fields
 	for (const model of models) {
-		const padded = model.displayName.padEnd(maxNameLen + 4);
-		const sizeGb = model.sizeBytes ? `${formatBytes(model.sizeBytes)}` : "";
+		const sizeGb = model.sizeBytes
+			? `|${(model.sizeBytes / (1024 * 1024 * 1024)).toFixed(1).padStart(6)}G`
+			: "      ";
 		const ctx = model.contextWindow
-			? `, ctx:${formatContext(model.contextWindow)}`
-			: "";
-		const typeStr = model.modelType ? `, ${model.modelType}` : "";
-		const icon = model.loaded ? "✅" : "  ";
-		model.description = `${icon} ${padded}${sizeGb}${ctx}${typeStr}`;
+			? `ctx:${Math.round(model.contextWindow / 1024).toString().padStart(4)}k`
+			: "      ";
+		const parts = [sizeGb, ctx];
+		if (model.modelType) parts.push(model.modelType);
+		model.description = parts.join(", ");
 	}
 
 	return { apiType: "omlx", models, status };
@@ -175,20 +182,22 @@ async function queryLmStudio(
 		// Right column: format/type/architecture (pass through as-is, only lowercase type)
 		const format = entry.format || "";
 		const architecture = entry.architecture || "";
-		const modelType = [format, rawType, architecture].filter(Boolean).join("/");
-
 		const reasoning = entry.capabilities?.reasoning ? true : undefined;
+		const modelType = [reasoning?"🧠":"🤖", format, rawType, architecture].filter(Boolean).join("/");
+
+		// Append leftExtras to displayName so it appears in the label column
+		const baseName = entry.display_name || entry.key;
+		const displayName = leftExtras ? `${baseName} (${leftExtras})` : baseName;
 
 		models.push({
 			id: entry.key,
-			displayName: entry.display_name || entry.key,
+			displayName,
 			description: "", // filled after sorting
 			loaded,
 			contextWindow: entry.max_context_length,
 			modelType,
 			sizeBytes: entry.size_bytes,
 			reasoning,
-			leftExtras,
 		});
 	}
 
@@ -199,30 +208,19 @@ async function queryLmStudio(
 		}),
 	);
 
-	// Build descriptions with aligned padding
-	const maxCombinedLen =
-		models.length > 0
-			? Math.max(
-					...models.map((m) => {
-						const extras = (m as { leftExtras?: string }).leftExtras;
-						return m.displayName.length + (extras ? extras.length : 0);
-					}),
-				)
-			: 0;
+// Build descriptions with right-aligned numeric fields
 	for (const model of models) {
 		const extras = (model as { leftExtras?: string }).leftExtras;
-		const extrasLen = extras ? extras.length : 0;
-		const leftColLen = maxCombinedLen + 4;
-		const padding = leftColLen - model.displayName.length - extrasLen - 3; // -3 for " ()"
-		const padded = " ".repeat(padding);
 		const extrasStr = extras ? ` (${extras})` : "";
-		const sizeGb = model.sizeBytes ? `${formatBytes(model.sizeBytes)}` : "";
+		const sizeGb = model.sizeBytes ? `|${formatBytes(model.sizeBytes)}` : "";
 		const ctx = model.contextWindow
-			? `, ctx:${formatContext(model.contextWindow)}`
+			? `ctx:${formatContext(model.contextWindow)}`
 			: "";
-		const typeStr = model.modelType ? `, ${model.modelType}` : "";
-		const icon = model.loaded ? "✅" : "  ";
-		model.description = `${icon} ${model.displayName}${extrasStr}${padded}${sizeGb}${ctx}${typeStr}`;
+		const parts: string[] = [];
+		if (extrasStr) parts.push(extrasStr);
+		parts.push(sizeGb, ctx);
+		if (model.modelType) parts.push(model.modelType);
+		model.description = parts.join(", ");
 	}
 
 	return { apiType: "lmstudio", models };
@@ -392,11 +390,11 @@ async function execApi(
 }
 
 function formatBytes(bytes: number): string {
-	return `${((bytes / (1024 * 1024 * 1024)).toFixed(1)).padStart(6, " ")}G`;
+	return `${((bytes / (1024 * 1024 * 1024)).toFixed(1)).padStart(6)}G`;
 }
 
 function formatContext(tokens: number): string {
 	return `${Math.round(tokens / 1024)
 		.toString()
-		.padStart(4, " ")}k`;
+		.padStart(4)}k`;
 }

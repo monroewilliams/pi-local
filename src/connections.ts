@@ -15,6 +15,8 @@ export interface StoredConnection {
 			maxTokens?: number;
 			reasoning?: boolean;
 			modelType?: string;
+			pinned?: boolean;
+			favorite?: boolean;
 		}
 	>;
 }
