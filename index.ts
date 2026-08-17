@@ -1,16 +1,13 @@
 import { platform } from "node:os";
-import { SettingsManager, getAgentDir } from "@earendil-works/pi-coding-agent";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { Model } from "@earendil-works/pi-ai";
-import { createLocalProvider, providerDisplayName, toModel } from "./src/provider.ts";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { getAgentDir, SettingsManager } from "@earendil-works/pi-coding-agent";
 import {
 	DEFAULT_LOCAL_BASE_URL,
 	isDirectKey,
 	keychainStoreCommand,
 	normalizeBaseUrl,
 } from "./src/config.ts";
-import type { DiscoveredModel } from "./src/model-picker.ts";
-import { queryConnection } from "./src/model-picker.ts";
 import {
 	addConnection,
 	getConnection,
@@ -19,12 +16,17 @@ import {
 	resolveApiKey,
 	type StoredConnection,
 } from "./src/connections.ts";
+import type { DiscoveredModel } from "./src/model-picker.ts";
+import { queryConnection } from "./src/model-picker.ts";
+import {
+	createLocalProvider,
+	providerDisplayName,
+	toModel,
+} from "./src/provider.ts";
 
 // ============================================================================
 // Helpers
 // ============================================================================
-
-
 
 // ============================================================================
 // Startup: register all known connections as providers
@@ -39,31 +41,61 @@ function registerAllConnections(pi: ExtensionAPI): void {
 				const initialModels: Model<"openai-completions">[] = [];
 				if (conn.knownModels) {
 					for (const [id, meta] of Object.entries(conn.knownModels)) {
-						initialModels.push(toModel({ id, displayName: meta.displayName, description: meta.displayName, loaded: false, contextWindow: meta.contextWindow, maxTokens: meta.maxTokens, reasoning: meta.reasoning, modelType: meta.modelType, pinned: meta.pinned, favorite: meta.favorite }, conn.baseUrl, conn.apiType));
+						initialModels.push(
+							toModel(
+								{
+									id,
+									displayName: meta.displayName,
+									description: meta.displayName,
+									loaded: false,
+									contextWindow: meta.contextWindow,
+									maxTokens: meta.maxTokens,
+									reasoning: meta.reasoning,
+									reasoningEffortOptions: meta.reasoningEffortOptions,
+									modelType: meta.modelType,
+									pinned: meta.pinned,
+									favorite: meta.favorite,
+								},
+								conn.baseUrl,
+								conn.apiType,
+							),
+						);
 					}
 				}
 
-			const provider = createLocalProvider(
-				conn.baseUrl,
-				conn.apiKey,
-				resolveApiKey,
-				async (url: string, key: string) => {
-					try {
-						return await queryConnection(url, key);
-					} catch {
-						// Return cached models on network failure
-						const stored = getConnection(url);
-						const models: DiscoveredModel[] = [];
-						if (stored?.knownModels) {
-							for (const [id, meta] of Object.entries(stored.knownModels)) {
-					models.push({ id, displayName: meta.displayName, description: meta.displayName, loaded: false, contextWindow: meta.contextWindow, maxTokens: meta.maxTokens, reasoning: meta.reasoning, modelType: meta.modelType, pinned: meta.pinned, favorite: meta.favorite });
+				const provider = createLocalProvider(
+					conn.baseUrl,
+					conn.apiKey,
+					resolveApiKey,
+					async (url: string, key: string) => {
+						try {
+							return await queryConnection(url, key);
+						} catch {
+							// Return cached models on network failure
+							const stored = getConnection(url);
+							const models: DiscoveredModel[] = [];
+							if (stored?.knownModels) {
+								for (const [id, meta] of Object.entries(stored.knownModels)) {
+									models.push({
+										id,
+										displayName: meta.displayName,
+										description: meta.displayName,
+										loaded: false,
+										contextWindow: meta.contextWindow,
+										maxTokens: meta.maxTokens,
+										reasoning: meta.reasoning,
+										reasoningEffortOptions: meta.reasoningEffortOptions,
+										modelType: meta.modelType,
+										pinned: meta.pinned,
+										favorite: meta.favorite,
+									});
+								}
 							}
+							return { apiType: "openai" as const, models };
 						}
-						return { apiType: "openai" as const, models };
-					}
-				},
-				initialModels,
-			);
+					},
+					initialModels,
+				);
 				pi.registerProvider(provider);
 			} catch {
 				// Skip broken connections silently
@@ -168,17 +200,14 @@ export default function (pi: ExtensionAPI): void {
 			}
 
 			// If multiple connections, let user pick one first
-			let selectedConn: typeof resolvedConnections[0];
+			let selectedConn: (typeof resolvedConnections)[0];
 			if (resolvedConnections.length > 1) {
 				const connLabels = resolvedConnections.map((c) =>
 					c.baseUrl.includes("127.0.0.1") || c.baseUrl.includes("localhost")
 						? providerDisplayName(c.baseUrl)
 						: c.baseUrl,
 				);
-				const chosen = await ctx.ui.select(
-					"Select a connection",
-					connLabels,
-				);
+				const chosen = await ctx.ui.select("Select a connection", connLabels);
 				if (!chosen) return;
 				const idx = connLabels.indexOf(chosen);
 				if (idx === -1) return;
@@ -238,10 +267,7 @@ export default function (pi: ExtensionAPI): void {
 							);
 						}
 
-						return queryConnection(
-							selectedConn.baseUrl,
-							selectedConn.apiKey,
-						);
+						return queryConnection(selectedConn.baseUrl, selectedConn.apiKey);
 					},
 				},
 				currentModelId,
@@ -254,13 +280,17 @@ export default function (pi: ExtensionAPI): void {
 				selectedConn.baseUrl,
 				selectedConn.apiKey,
 			);
-			const knownModels: Record<string, NonNullable<StoredConnection["knownModels"]>[string]> = {};
+			const knownModels: Record<
+				string,
+				NonNullable<StoredConnection["knownModels"]>[string]
+			> = {};
 			for (const m of refreshed.models) {
 				knownModels[m.id] = {
 					displayName: m.displayName,
 					contextWindow: m.contextWindow,
 					maxTokens: m.maxTokens,
 					reasoning: m.reasoning,
+					reasoningEffortOptions: m.reasoningEffortOptions,
 					modelType: m.modelType,
 					pinned: m.pinned,
 					favorite: m.favorite,
@@ -272,7 +302,7 @@ export default function (pi: ExtensionAPI): void {
 			});
 
 			pi.unregisterProvider(selectedConn.baseUrl);
-			
+
 			// Re-register provider with full model list (so /model sees all of them)
 			const initialModels = refreshed.models.map((m) =>
 				toModel(m, selectedConn.baseUrl, refreshed.apiType),
@@ -281,29 +311,16 @@ export default function (pi: ExtensionAPI): void {
 				selectedConn.baseUrl,
 				selectedConn.apiKeyCommand,
 				resolveApiKey,
-				async (url: string, key: string) =>
-					queryConnection(url, key),
+				async (url: string, key: string) => queryConnection(url, key),
 				initialModels,
 			);
 			pi.registerProvider(provider);
 
-			// Set active model
-			const inputTypes: Array<"text" | "image"> = model.modelType?.includes("vlm")
-				? ["text", "image"]
-				: ["text"];
-
-			const success = await pi.setModel({
-				id: model.id,
-				name: model.displayName,
-				api: "openai-completions",
-				provider: selectedConn.baseUrl,
-				baseUrl: `${selectedConn.baseUrl}/v1`,
-				reasoning: model.reasoning ?? false,
-				input: inputTypes,
-				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-				contextWindow: model.contextWindow ?? 128000,
-				maxTokens: model.maxTokens ?? 16384,
-			});
+			// Set active model. Use the full toModel output (not a bare object)
+			// so compat/thinkingLevelMap survive — setModel stores the object as-is.
+			const success = await pi.setModel(
+				toModel(model, selectedConn.baseUrl, refreshed.apiType),
+			);
 
 			if (success) {
 				ctx.ui.notify(`Using model: ${model.displayName}`);

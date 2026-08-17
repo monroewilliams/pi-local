@@ -12,6 +12,8 @@ interface OmlxModelsStatusResponse {
 		enable_thinking?: boolean | null;
 		thinking_default?: boolean | null;
 		preserve_thinking_default?: boolean | null;
+		reasoning_effort_options?: string[] | null;
+		reasoning_effort_default?: string | null;
 		model_type?: string | null;
 		config_model_type?: string | null;
 		loaded?: boolean;
@@ -80,6 +82,8 @@ export interface DiscoveredModel {
 	pinned?: boolean;
 	favorite?: boolean;
 	reasoning?: boolean;
+	/** Strict reasoning_effort vocabulary advertised by the server (oMLX discovery). */
+	reasoningEffortOptions?: string[];
 	leftExtras?: string; // internal: quant/publisher for LM Studio display
 }
 
@@ -118,7 +122,16 @@ async function queryOmlx(
 		const configModelType = (entry.config_model_type || type).toLowerCase();
 
 		const reasoning = entry.thinking_default != null ? true : undefined;
-		const modelType = [reasoning?"🧠":"🤖", type, configModelType].filter(Boolean).join("/");
+		const rawEffortOptions = entry.reasoning_effort_options;
+		const reasoningEffortOptions =
+			Array.isArray(rawEffortOptions) &&
+			rawEffortOptions.length > 0 &&
+			rawEffortOptions.every((o) => typeof o === "string")
+				? rawEffortOptions
+				: undefined;
+		const modelType = [reasoning ? "🧠" : "🤖", type, configModelType]
+			.filter(Boolean)
+			.join("/");
 
 		models.push({
 			id: entry.id,
@@ -132,6 +145,7 @@ async function queryOmlx(
 			modelType: modelType,
 			sizeBytes: entry.estimated_size,
 			reasoning,
+			reasoningEffortOptions,
 		});
 	}
 
@@ -148,7 +162,9 @@ async function queryOmlx(
 			? `|${(model.sizeBytes / (1024 * 1024 * 1024)).toFixed(1).padStart(6)}G`
 			: "      ";
 		const ctx = model.contextWindow
-			? `ctx:${Math.round(model.contextWindow / 1024).toString().padStart(4)}k`
+			? `ctx:${Math.round(model.contextWindow / 1024)
+					.toString()
+					.padStart(4)}k`
 			: "      ";
 		const parts = [sizeGb, ctx];
 		if (model.modelType) parts.push(model.modelType);
@@ -183,7 +199,9 @@ async function queryLmStudio(
 		const format = entry.format || "";
 		const architecture = entry.architecture || "";
 		const reasoning = entry.capabilities?.reasoning ? true : undefined;
-		const modelType = [reasoning?"🧠":"🤖", format, rawType, architecture].filter(Boolean).join("/");
+		const modelType = [reasoning ? "🧠" : "🤖", format, rawType, architecture]
+			.filter(Boolean)
+			.join("/");
 
 		// Append leftExtras to displayName so it appears in the label column
 		const baseName = entry.display_name || entry.key;
@@ -208,7 +226,7 @@ async function queryLmStudio(
 		}),
 	);
 
-// Build descriptions with right-aligned numeric fields
+	// Build descriptions with right-aligned numeric fields
 	for (const model of models) {
 		const extras = (model as { leftExtras?: string }).leftExtras;
 		const extrasStr = extras ? ` (${extras})` : "";
@@ -288,12 +306,9 @@ export async function loadModel(
 				{},
 			);
 		case "lmstudio":
-			return execApi(
-				`${baseUrl}/api/v1/models/load`,
-				apiKey,
-				"POST",
-				{ model: modelId },
-			);
+			return execApi(`${baseUrl}/api/v1/models/load`, apiKey, "POST", {
+				model: modelId,
+			});
 		case "openai":
 			return { error: "load not supported" };
 	}
@@ -309,12 +324,9 @@ export async function unloadModel(
 		case "omlx":
 			return execOmlxUnload(baseUrl, apiKey, modelId);
 		case "lmstudio":
-			return execApi(
-				`${baseUrl}/api/v1/models/unload`,
-				apiKey,
-				"POST",
-				{ instance_id: modelId },
-			);
+			return execApi(`${baseUrl}/api/v1/models/unload`, apiKey, "POST", {
+				instance_id: modelId,
+			});
 		case "openai":
 			return { error: "unload not supported" };
 	}

@@ -1,3 +1,4 @@
+import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import {
 	type Component,
 	Container,
@@ -11,7 +12,6 @@ import {
 	truncateToWidth,
 	visibleWidth,
 } from "@earendil-works/pi-tui";
-import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { DiscoveredModel, QueryResult } from "./model-picker.ts";
 
 // ============================================================================
@@ -40,7 +40,10 @@ function formatStatus(result: QueryResult): string | undefined {
 	return undefined;
 }
 
-function formatItem(m: DiscoveredModel): { label: string; description: string } {
+function formatItem(m: DiscoveredModel): {
+	label: string;
+	description: string;
+} {
 	const icon = m.pinned ? "📌" : m.loaded ? "✅" : m.favorite ? "⭐" : "  ";
 	return { label: `${icon} ${m.displayName}`, description: m.description };
 }
@@ -92,7 +95,8 @@ class LocalPickerView implements Focusable {
 		this.bold = bold;
 		this.done = done;
 		this.models = result.models;
-		this.hasLoadUnload = result.apiType === "omlx" || result.apiType === "lmstudio";
+		this.hasLoadUnload =
+			result.apiType === "omlx" || result.apiType === "lmstudio";
 		this.build(baseUrl, result, initialSelectedId);
 	}
 
@@ -104,9 +108,14 @@ class LocalPickerView implements Focusable {
 		this._focused = value;
 	}
 
-	private build(baseUrl: string, result: QueryResult, initialSelectedId?: string): void {
+	private build(
+		baseUrl: string,
+		result: QueryResult,
+		initialSelectedId?: string,
+	): void {
 		this.models = result.models;
-		this.hasLoadUnload = result.apiType === "omlx" || result.apiType === "lmstudio";
+		this.hasLoadUnload =
+			result.apiType === "omlx" || result.apiType === "lmstudio";
 
 		const items: SelectItem[] = this.models.map((m) => {
 			const { label, description } = formatItem(m);
@@ -156,19 +165,23 @@ class LocalPickerView implements Focusable {
 
 		const kb = getKeybindings();
 		const parts: string[] = [
-			this.fg("dim", kb.getKeys("tui.select.confirm").join("/")) + this.fg("muted", " select"),
+			this.fg("dim", kb.getKeys("tui.select.confirm").join("/")) +
+				this.fg("muted", " select"),
 		];
 		if (this.hasLoadUnload) {
 			parts.push(this.fg("dim", "l") + this.fg("muted", " load"));
 			parts.push(this.fg("dim", "u") + this.fg("muted", " unload"));
 		}
 		parts.push(
-			this.fg("dim", kb.getKeys("tui.select.cancel").join("/")) + this.fg("muted", " close"),
+			this.fg("dim", kb.getKeys("tui.select.cancel").join("/")) +
+				this.fg("muted", " close"),
 		);
 
 		const container = new Container();
 		container.addChild(new Border((t) => this.fg("accent", t)));
-		container.addChild(new Text(this.fg("accent", this.bold("Local Models")), 1, 0));
+		container.addChild(
+			new Text(this.fg("accent", this.bold("Local Models")), 1, 0),
+		);
 		for (const child of body) container.addChild(child);
 		container.addChild(new Spacer(1));
 		container.addChild(new Text(parts.join(" • "), 1, 0));
@@ -186,7 +199,8 @@ class LocalPickerView implements Focusable {
 				if (selected) {
 					const model = this.models.find((m) => m.id === selected.value);
 					if (model) {
-						const action = data === "l" ? ("load" as const) : ("unload" as const);
+						const action =
+							data === "l" ? ("load" as const) : ("unload" as const);
 						this.done({ type: action, model });
 						return;
 					}
@@ -202,7 +216,7 @@ class LocalPickerView implements Focusable {
 	render(width: number): string[] {
 		return this.content
 			.render(width)
-				.map((line: string) =>
+			.map((line: string) =>
 				visibleWidth(line) > width ? truncateToWidth(line, width, "") : line,
 			);
 	}
@@ -249,18 +263,20 @@ export async function showLocalPicker(
 	let lastSelectedId = currentModelId;
 
 	while (true) {
-		const action = await ctx.ui.custom<LocalPickerAction>((tui, theme, _keybindings, done) => {
-			const view = new LocalPickerView(
-				tui,
-				(c, t) => theme.fg(c as any, t),
-				(t) => theme.bold(t),
-				done,
-				baseUrl,
-				result,
-				lastSelectedId,
-			);
-			return view;
-		});
+		const action = await ctx.ui.custom<LocalPickerAction>(
+			(tui, theme, _keybindings, done) => {
+				const view = new LocalPickerView(
+					tui,
+					(c, t) => theme.fg(c as any, t),
+					(t) => theme.bold(t),
+					done,
+					baseUrl,
+					result,
+					lastSelectedId,
+				);
+				return view;
+			},
+		);
 
 		if (!action || action.type === "close") {
 			return undefined;
@@ -282,8 +298,6 @@ export async function showLocalPicker(
 				return undefined;
 			}
 			result = refreshed;
-			// Loop: picker re-opens with refreshed model list
-			continue;
 		}
 	}
 }

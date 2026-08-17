@@ -17,6 +17,7 @@ export interface StoredConnection {
 			contextWindow?: number;
 			maxTokens?: number;
 			reasoning?: boolean;
+			reasoningEffortOptions?: string[];
 			modelType?: string;
 			pinned?: boolean;
 			favorite?: boolean;
@@ -69,7 +70,10 @@ function saveConnectionsData(data: ConnectionsData): void {
 export function addConnection(
 	baseUrl: string,
 	apiKeyCommand: string,
-	options?: { knownModels?: StoredConnection["knownModels"]; apiType?: ApiType },
+	options?: {
+		knownModels?: StoredConnection["knownModels"];
+		apiType?: ApiType;
+	},
 ): void {
 	const data = loadConnectionsData();
 	data.connections[baseUrl] = {
@@ -91,9 +95,15 @@ export function listConnections(): StoredConnection[] {
 	const connections: StoredConnection[] = [];
 
 	for (const baseUrl of Object.keys(data.connections)) {
-		if (!baseUrl.startsWith("http://") && !baseUrl.startsWith("https://")) continue;
+		if (!baseUrl.startsWith("http://") && !baseUrl.startsWith("https://"))
+			continue;
 		const entry = data.connections[baseUrl];
-			connections.push({ baseUrl, apiKey: entry.apiKey, apiType: entry.apiType, knownModels: entry.knownModels });
+		connections.push({
+			baseUrl,
+			apiKey: entry.apiKey,
+			apiType: entry.apiType,
+			knownModels: entry.knownModels,
+		});
 	}
 
 	return connections;
@@ -103,5 +113,10 @@ export function getConnection(baseUrl: string): StoredConnection | undefined {
 	const data = loadConnectionsData();
 	const entry = data.connections[baseUrl];
 	if (!entry) return undefined;
-	return { baseUrl, apiKey: entry.apiKey, apiType: entry.apiType, knownModels: entry.knownModels };
+	return {
+		baseUrl,
+		apiKey: entry.apiKey,
+		apiType: entry.apiType,
+		knownModels: entry.knownModels,
+	};
 }
