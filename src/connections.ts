@@ -2,10 +2,13 @@ import { execSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
+import type { ApiType } from "./model-picker.ts";
 
 export interface StoredConnection {
 	baseUrl: string;
 	apiKey: string;
+	/** API type detected on the last successful query (drives model compat at startup). */
+	apiType?: ApiType;
 	/** All known models from the last successful query, keyed by id. */
 	knownModels?: Record<
 		string,
@@ -66,11 +69,12 @@ function saveConnectionsData(data: ConnectionsData): void {
 export function addConnection(
 	baseUrl: string,
 	apiKeyCommand: string,
-	options?: { knownModels?: StoredConnection["knownModels"] },
+	options?: { knownModels?: StoredConnection["knownModels"]; apiType?: ApiType },
 ): void {
 	const data = loadConnectionsData();
 	data.connections[baseUrl] = {
 		apiKey: apiKeyCommand,
+		apiType: options?.apiType ?? data.connections[baseUrl]?.apiType,
 		knownModels: options?.knownModels ?? data.connections[baseUrl]?.knownModels,
 	};
 	saveConnectionsData(data);
@@ -89,7 +93,7 @@ export function listConnections(): StoredConnection[] {
 	for (const baseUrl of Object.keys(data.connections)) {
 		if (!baseUrl.startsWith("http://") && !baseUrl.startsWith("https://")) continue;
 		const entry = data.connections[baseUrl];
-		connections.push({ baseUrl, apiKey: entry.apiKey, knownModels: entry.knownModels });
+			connections.push({ baseUrl, apiKey: entry.apiKey, apiType: entry.apiType, knownModels: entry.knownModels });
 	}
 
 	return connections;
@@ -99,5 +103,5 @@ export function getConnection(baseUrl: string): StoredConnection | undefined {
 	const data = loadConnectionsData();
 	const entry = data.connections[baseUrl];
 	if (!entry) return undefined;
-	return { baseUrl, apiKey: entry.apiKey, knownModels: entry.knownModels };
+	return { baseUrl, apiKey: entry.apiKey, apiType: entry.apiType, knownModels: entry.knownModels };
 }

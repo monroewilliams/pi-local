@@ -39,7 +39,7 @@ function registerAllConnections(pi: ExtensionAPI): void {
 				const initialModels: Model<"openai-completions">[] = [];
 				if (conn.knownModels) {
 					for (const [id, meta] of Object.entries(conn.knownModels)) {
-						initialModels.push(toModel({ id, displayName: meta.displayName, description: meta.displayName, loaded: false, contextWindow: meta.contextWindow, maxTokens: meta.maxTokens, reasoning: meta.reasoning, modelType: meta.modelType, pinned: meta.pinned, favorite: meta.favorite }, conn.baseUrl));
+						initialModels.push(toModel({ id, displayName: meta.displayName, description: meta.displayName, loaded: false, contextWindow: meta.contextWindow, maxTokens: meta.maxTokens, reasoning: meta.reasoning, modelType: meta.modelType, pinned: meta.pinned, favorite: meta.favorite }, conn.baseUrl, conn.apiType));
 					}
 				}
 
@@ -268,6 +268,7 @@ export default function (pi: ExtensionAPI): void {
 			}
 			addConnection(selectedConn.baseUrl, selectedConn.apiKeyCommand, {
 				knownModels,
+				apiType: refreshed.apiType,
 			});
 
 			pi.unregisterProvider(selectedConn.baseUrl);
