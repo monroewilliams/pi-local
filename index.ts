@@ -4,6 +4,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { getAgentDir, SettingsManager } from "@earendil-works/pi-coding-agent";
 import {
 	DEFAULT_LOCAL_BASE_URL,
+	encodeProviderId,
 	isDirectKey,
 	keychainStoreCommand,
 	normalizeBaseUrl,
@@ -162,7 +163,7 @@ export default function (pi: ExtensionAPI): void {
 							}
 						}
 						removeConnection(baseUrl);
-						pi.unregisterProvider(baseUrl);
+						pi.unregisterProvider(encodeProviderId(baseUrl));
 					}
 				}
 			}
@@ -301,7 +302,7 @@ export default function (pi: ExtensionAPI): void {
 				apiType: refreshed.apiType,
 			});
 
-			pi.unregisterProvider(selectedConn.baseUrl);
+			pi.unregisterProvider(encodeProviderId(selectedConn.baseUrl));
 
 			// Re-register provider with full model list (so /model sees all of them)
 			const initialModels = refreshed.models.map((m) =>

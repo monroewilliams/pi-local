@@ -8,6 +8,22 @@ export function normalizeBaseUrl(raw: string): string {
 }
 
 /**
+ * Provider id for a connection. Clients that pack a model reference as
+ * "provider/model" unpack it at the first slash (pi-acp does), so a base URL
+ * used verbatim as an id splits on its own scheme. Drop those two slashes:
+ * "http://host:8000" → "http:host:8000". Still unambiguous, and http vs
+ * https survives — unlike stripping the scheme outright.
+ */
+export function encodeProviderId(baseUrl: string): string {
+	return baseUrl.replace(/^(https?):\/\//, "$1:");
+}
+
+/** Inverse of encodeProviderId; a no-op on an id that kept its slashes. */
+export function decodeProviderId(providerId: string): string {
+	return providerId.replace(/^(https?):(?!\/\/)/, "$1://");
+}
+
+/**
  * Default key format. Always empty — the user types their key
  * (or leaves blank for no auth).
  *

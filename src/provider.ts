@@ -9,6 +9,7 @@ import type {
 } from "@earendil-works/pi-ai";
 import type { ProviderStreamOptions } from "@earendil-works/pi-ai/compat";
 import { stream, streamSimple } from "@earendil-works/pi-ai/compat";
+import { encodeProviderId } from "./config.ts";
 import type { ApiType, DiscoveredModel, QueryResult } from "./model-picker.ts";
 
 const DEFAULT_CONTEXT_WINDOW = 128000;
@@ -60,7 +61,7 @@ export function providerDisplayName(baseUrl: string): string {
 
 export function toModel(
 	m: DiscoveredModel,
-	providerId: string,
+	baseUrl: string,
 	apiType?: ApiType,
 ): Model<"openai-completions"> {
 	let compat: Record<string, unknown> | undefined;
@@ -91,8 +92,8 @@ export function toModel(
 		id: m.id,
 		name: m.displayName,
 		api: "openai-completions",
-		provider: providerId,
-		baseUrl: `${providerId}/v1`,
+		provider: encodeProviderId(baseUrl),
+		baseUrl: `${baseUrl}/v1`,
 		reasoning,
 		compat,
 		thinkingLevelMap,
@@ -111,7 +112,7 @@ export function toModel(
  * - Models appearing in /model selector via refreshModels()
  * - Live catalog refresh when the model picker opens
  *
- * @param baseUrl         The server base URL (also used as provider id)
+ * @param baseUrl         The server base URL (encoded into the provider id)
  * @param storedApiKey    Raw API key reference (!command, $ENV_VAR, or direct)
  * @param resolveApiKey   Function to resolve the raw reference to an actual key
  * @param queryModels     Function to live-query available models from the server
@@ -128,7 +129,7 @@ export function createLocalProvider(
 	let detectedApiType: ApiType | undefined;
 
 	return {
-		id: baseUrl,
+		id: encodeProviderId(baseUrl),
 		name: providerDisplayName(baseUrl),
 
 		auth: {
