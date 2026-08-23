@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { DiscoveredModel } from "../src/model-picker.ts";
-import { buildThinkingLevelMap, toModel } from "../src/provider.ts";
+import {
+	adaptModelForRequest,
+	buildThinkingLevelMap,
+	toModel,
+} from "../src/provider.ts";
 
 describe("buildThinkingLevelMap", () => {
 	it("maps advertised levels to themselves and hides the rest (Qwen3.8)", () => {
@@ -100,5 +104,66 @@ describe("toModel (omlx)", () => {
 		);
 		expect(m.compat).toBeUndefined();
 		expect(m.thinkingLevelMap).toBeUndefined();
+	});
+});
+
+describe("adaptModelForRequest", () => {
+	const base: DiscoveredModel = {
+		id: "test-model",
+		displayName: "Test Model",
+		description: "",
+		loaded: false,
+	};
+	const fallback = toModel(
+		{ ...base, reasoning: true },
+		"http://127.0.0.1:8000",
+		"omlx",
+	);
+
+	it("keeps qwen-chat-template for off and no level", () => {
+		for (const level of [undefined, "off"]) {
+			const m = adaptModelForRequest(fallback, level);
+			expect(m).toBe(fallback);
+		}
+	});
+
+	it("switches to OpenAI-generic reasoning_effort for on-levels", () => {
+		for (const level of ["minimal", "low", "medium", "high"] as const) {
+			const m = adaptModelForRequest(fallback, level);
+			expect(m.compat).toEqual({ supportsReasoningEffort: true });
+			expect(m.thinkingLevelMap?.[level]).toBe(level);
+			// Untouched fields survive the shallow copy
+			expect(m.id).toBe(fallback.id);
+			expect(m.baseUrl).toBe(fallback.baseUrl);
+		}
+	});
+
+	it("passes through unlisted levels (xhigh/max) via the generic branch", () => {
+		const m = adaptModelForRequest(fallback, "xhigh");
+		expect(m.compat).toEqual({ supportsReasoningEffort: true });
+		expect(m.thinkingLevelMap?.xhigh).toBeUndefined();
+	});
+
+	it("leaves models with a discovered thinkingLevelMap untouched", () => {
+		const mapped = toModel(
+			{ ...base, reasoning: true, reasoningEffortOptions: ["low", "high"] },
+			"http://127.0.0.1:8000",
+			"omlx",
+		);
+		for (const level of [undefined, "off", "low"]) {
+			expect(adaptModelForRequest(mapped, level)).toBe(mapped);
+		}
+	});
+
+	it("leaves non-fallback models untouched", () => {
+		const plain = toModel(base, "http://127.0.0.1:1234", "lmstudio");
+		expect(adaptModelForRequest(plain, "low")).toBe(plain);
+
+		const nonReasoning = toModel(
+			{ ...base, reasoning: false },
+			"http://127.0.0.1:8000",
+			"omlx",
+		);
+		expect(adaptModelForRequest(nonReasoning, "low")).toBe(nonReasoning);
 	});
 });

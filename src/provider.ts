@@ -78,8 +78,10 @@ export function toModel(
 			// servers), but makes the model self-describing.
 			compat = { supportsReasoningEffort: true };
 		} else if (m.reasoning) {
-			// Fallback (server doesn't advertise a vocabulary):
-			// boolean thinking toggle via chat template kwargs.
+			// Fallback (server doesn't advertise a vocabulary). Marker only:
+			// adaptModelForRequest swaps it per request — qwen-chat-template
+			// (boolean enable_thinking) for off, OpenAI-generic reasoning_effort
+			// for minimal/low/medium/high.
 			compat = { thinkingFormat: "qwen-chat-template" as const };
 		}
 		// LM Studio and generic OpenAI servers: no thinkingFormat for now
@@ -102,6 +104,46 @@ export function toModel(
 		contextWindow: m.contextWindow ?? DEFAULT_CONTEXT_WINDOW,
 		maxTokens: m.maxTokens ?? DEFAULT_MAX_TOKENS,
 	};
+}
+
+/**
+ * Per-request compat swap for oMLX fallback models (no discovered
+ * reasoning_effort vocabulary).
+ *
+ * pi picks the thinking wire format from `compat.thinkingFormat` per model
+ * object, so a single model can't express "boolean off, leveled on". This
+ * runs in the provider's stream entry points, where both the model and the
+ * requested level are available:
+ *
+ * - off / no level → keep qwen-chat-template: pi sends
+ *   `chat_template_kwargs: { enable_thinking: false }`, which oMLX honors.
+ * - minimal/low/medium/high → OpenAI-generic: pi sends top-level
+ *   `reasoning_effort`, which oMLX merges into chat template kwargs with
+ *   alias fallbacks for strict-vocabulary templates.
+ *
+ * Only oMLX fallback models carry the qwen-chat-template marker (see
+ * toModel); models with a discovered thinkingLevelMap are untouched.
+ */
+export function adaptModelForRequest(
+	model: Model<"openai-completions">,
+	level?: string,
+): Model<"openai-completions"> {
+	if (!model.reasoning || model.thinkingLevelMap) return model;
+	if (model.compat?.thinkingFormat !== "qwen-chat-template") return model;
+
+	if (level && level !== "off") {
+		return {
+			...model,
+			compat: { supportsReasoningEffort: true },
+			thinkingLevelMap: {
+				minimal: "minimal",
+				low: "low",
+				medium: "medium",
+				high: "high",
+			},
+		};
+	}
+	return model;
 }
 
 /**
@@ -195,10 +237,24 @@ export function createLocalProvider(
 			}
 		},
 
-		stream: (model, context, options) =>
-			stream(model, context, options as ProviderStreamOptions | undefined),
+		stream: (model, context, options) => {
+			const opts = options as ProviderStreamOptions | undefined;
+			const level = opts?.reasoningEffort;
+			return stream(
+				adaptModelForRequest(
+					model,
+					typeof level === "string" ? level : undefined,
+				),
+				context,
+				opts,
+			);
+		},
 
 		streamSimple: (model, context, options) =>
-			streamSimple(model, context, options),
+			streamSimple(
+				adaptModelForRequest(model, options?.reasoning),
+				context,
+				options,
+			),
 	};
 }
