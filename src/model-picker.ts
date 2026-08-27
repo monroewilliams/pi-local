@@ -66,6 +66,14 @@ export interface OpenAIModelEntry {
 	 * servers (vLLM, TF Serving, ...) omit `meta` entirely.
 	 */
 	meta?: { n_ctx?: number; size?: number };
+	/**
+	 * Also not in the OpenAI spec, and flat rather than under `meta`: vLLM's
+	 * model card carries the context window here. The key is always present and
+	 * null for LoRA adapters, whose context is their base model's (`parent`).
+	 */
+	max_model_len?: number | null;
+	/** vLLM: id of the base model a LoRA adapter was trained from. */
+	parent?: string | null;
 }
 
 interface OpenAIModelsResponse {
@@ -271,15 +279,25 @@ async function queryOpenAI(
 /**
  * Map a plain OpenAI-compatible /v1/models payload to discovered models.
  *
- * llama.cpp is the only server we detect here that reports more than an id,
- * and it does so under the non-standard `meta` key: `n_ctx` becomes the
- * context window pi is told to stay inside, `size` is display-only. Servers
- * that advertise neither leave both undefined, so the right-hand column of
- * the model list stays blank (and provider.ts falls back to its default
+ * Two servers here report more than an id, and they disagree on where to put
+ * it: llama.cpp nests a `meta` object (`n_ctx` in tokens, `size` in bytes),
+ * vLLM puts the same quantity flat on the card as `max_model_len`. Both mean
+ * "the context window this server will hold you to" — vLLM resolves its number
+ * against the KV cache that actually fit, so it is the authoritative figure
+ * even when the operator launched with a larger one. `size` is display-only.
+ *
+ * Servers advertising neither leave both undefined, so the right-hand column
+ * of the model list stays blank (and provider.ts falls back to its default
  * context window).
  */
 export function mapOpenAiModels(data: OpenAIModelEntry[]): DiscoveredModel[] {
 	const models: DiscoveredModel[] = [];
+	// LoRA cards report no context of their own, so keep the lineage and the
+	// base models' contexts around to fill them in from. `parent` always names a
+	// base model, never another adapter, so one lookup is all it takes.
+	const contexts = new Map<string, number>();
+	const parents = new Map<string, string>();
+
 	for (const entry of data) {
 		if (!entry || typeof entry.id !== "string") continue;
 		const model: DiscoveredModel = {
@@ -287,11 +305,25 @@ export function mapOpenAiModels(data: OpenAIModelEntry[]): DiscoveredModel[] {
 			displayName: entry.id,
 			description: "", // filled below, once every field is known
 			loaded: false,
-			contextWindow: positiveNumber(entry.meta?.n_ctx),
+			// `meta` first: llama.cpp is the incumbent and its reading is
+			// unchanged by the vLLM field, which no llama.cpp build emits.
+			contextWindow:
+				positiveNumber(entry.meta?.n_ctx) ??
+				positiveNumber(entry.max_model_len),
 			sizeBytes: positiveNumber(entry.meta?.size),
 		};
-		model.description = formatModelColumn(model);
+		if (model.contextWindow) contexts.set(model.id, model.contextWindow);
+		if (typeof entry.parent === "string" && entry.parent)
+			parents.set(model.id, entry.parent);
 		models.push(model);
+	}
+
+	for (const model of models) {
+		if (!model.contextWindow) {
+			const parent = parents.get(model.id);
+			if (parent) model.contextWindow = contexts.get(parent);
+		}
+		model.description = formatModelColumn(model);
 	}
 	return models;
 }
