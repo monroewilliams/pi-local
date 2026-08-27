@@ -57,9 +57,20 @@ interface LmStudioModelsResponse {
 	}>;
 }
 
+export interface OpenAIModelEntry {
+	id: string;
+	object?: string;
+	/**
+	 * Not in the OpenAI spec: llama.cpp describes the model here. `n_ctx` is
+	 * the context window in tokens, `size` the model file in bytes. Other
+	 * servers (vLLM, TF Serving, ...) omit `meta` entirely.
+	 */
+	meta?: { n_ctx?: number; size?: number };
+}
+
 interface OpenAIModelsResponse {
 	object: string;
-	data: Array<{ id: string; object?: string }>;
+	data: OpenAIModelEntry[];
 }
 
 // ============================================================================
@@ -254,17 +265,35 @@ async function queryOpenAI(
 	);
 	if (!res?.data?.length) return { apiType: "openai", models: [] };
 
-	return {
-		apiType: "openai",
-		models: res.data
-			.filter((e): e is { id: string } => !!e && typeof e.id === "string")
-			.map((e) => ({
-				id: e.id,
-				displayName: e.id,
-				description: e.id,
-				loaded: false,
-			})),
-	};
+	return { apiType: "openai", models: mapOpenAiModels(res.data) };
+}
+
+/**
+ * Map a plain OpenAI-compatible /v1/models payload to discovered models.
+ *
+ * llama.cpp is the only server we detect here that reports more than an id,
+ * and it does so under the non-standard `meta` key: `n_ctx` becomes the
+ * context window pi is told to stay inside, `size` is display-only. Servers
+ * that advertise neither leave both undefined, so the right-hand column of
+ * the model list stays blank (and provider.ts falls back to its default
+ * context window).
+ */
+export function mapOpenAiModels(data: OpenAIModelEntry[]): DiscoveredModel[] {
+	const models: DiscoveredModel[] = [];
+	for (const entry of data) {
+		if (!entry || typeof entry.id !== "string") continue;
+		const model: DiscoveredModel = {
+			id: entry.id,
+			displayName: entry.id,
+			description: "", // filled below, once every field is known
+			loaded: false,
+			contextWindow: positiveNumber(entry.meta?.n_ctx),
+			sizeBytes: positiveNumber(entry.meta?.size),
+		};
+		model.description = formatModelColumn(model);
+		models.push(model);
+	}
+	return models;
 }
 
 // ============================================================================
@@ -409,4 +438,32 @@ function formatContext(tokens: number): string {
 	return `${Math.round(tokens / 1024)
 		.toString()
 		.padStart(4)}k`;
+}
+
+/**
+ * Right-hand column of the model list for servers that report no more than
+ * OpenAI's `/v1/models` requires: `|  88.0G, ctx:  256k`, same field widths as
+ * the oMLX backend. Fields that are missing are left out; when both are the
+ * column is empty.
+ */
+function formatModelColumn(model: DiscoveredModel): string {
+	const parts: string[] = [];
+	if (model.sizeBytes) parts.push(`|${formatBytes(model.sizeBytes)}`);
+	if (model.contextWindow)
+		parts.push(`ctx:${formatContext(model.contextWindow)}`);
+	return parts.join(", ");
+}
+
+/**
+ * Numeric field from an unvalidated server response.
+ *
+ * These endpoints are third-party and loose with their own shapes — llama.cpp
+ * itself returns `size: ""` (a string) in the sibling `models` array of the
+ * very same response — so anything but a positive finite number counts as
+ * absent.
+ */
+function positiveNumber(value: unknown): number | undefined {
+	return typeof value === "number" && Number.isFinite(value) && value > 0
+		? value
+		: undefined;
 }
