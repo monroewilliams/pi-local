@@ -52,6 +52,33 @@ export function buildThinkingLevelMap(
 }
 
 /**
+ * Thinking levels for a server whose engine we could not identify (llama.cpp,
+ * vLLM, any other plain OpenAI-compatible endpoint): every pi level up to
+ * `xhigh` is offered and passed through verbatim as top-level
+ * `reasoning_effort`; `off` maps to "none".
+ *
+ * pi only offers `xhigh` when a model maps it explicitly, so without this map
+ * an unidentified server would cap out at `high`. llama.cpp's server accepts
+ * the whole vocabulary (it forwards the string to the chat template, and
+ * ignores it when the template doesn't read `reasoning_effort`); it also
+ * accepts "max", which pi-local deliberately does not advertise.
+ *
+ * "none" is what turns thinking off on llama.cpp: the server special-cases
+ * `reasoning_effort: "none"` into `enable_thinking = false` and drops the
+ * kwarg instead of forwarding it.
+ */
+export function buildPassthroughThinkingLevelMap(): ThinkingLevelMap {
+	return {
+		off: "none",
+		minimal: "minimal",
+		low: "low",
+		medium: "medium",
+		high: "high",
+		xhigh: "xhigh",
+	};
+}
+
+/**
  * Human-readable display name for a base URL provider.
  * Strips protocol and trailing slash: "http://127.0.0.1:1234" → "127.0.0.1:1234"
  */
@@ -84,11 +111,18 @@ export function toModel(
 			// for minimal/low/medium/high.
 			compat = { thinkingFormat: "qwen-chat-template" as const };
 		}
-		// LM Studio and generic OpenAI servers: no thinkingFormat for now
-		// (they may not support per-request thinking control via the API)
+	} else if (apiType === undefined || apiType === "openai") {
+		// "I don't know which engine this is" (llama.cpp lands here: its
+		// /v1/models advertises nothing about reasoning). No per-format
+		// thinkingFormat, just pi's OpenAI-generic branch: send the selected
+		// level as top-level `reasoning_effort`, "none" to disable thinking.
+		// LM Studio is excluded — it advertises its own reasoning vocabulary.
+		thinkingLevelMap = buildPassthroughThinkingLevelMap();
+		compat = { supportsReasoningEffort: true };
 	}
-	// The generic reasoning_effort branch only fires when model.reasoning is
-	// set, so a built map implies reasoning support.
+	// pi's reasoning_effort branches (generic and format-specific) only fire
+	// when model.reasoning is set, and the level selector only appears when
+	// reasoning is true, so a built map implies reasoning support.
 	const reasoning = thinkingLevelMap ? true : (m.reasoning ?? false);
 	return {
 		id: m.id,

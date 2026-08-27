@@ -9,7 +9,7 @@ A Pi extension for configuring and switching between multiple local LLM inferenc
 - **Model loading** — load/unload models on servers that support it (oMLX, LM Studio)
 - **Persistence** — your default provider and model are restored automatically on Pi restart
 - **macOS keychain** — offers to store API keys in the macOS keychain via `security` commands
-- **Reasoning support** — discovers and passes through reasoning capabilities from models that advertise them
+- **Reasoning support** — forwards pi's thinking levels as `reasoning_effort`, using each server's advertised vocabulary where available
 
 ## Supported backends
 
@@ -21,9 +21,30 @@ A Pi extension for configuring and switching between multiple local LLM inferenc
 
 The extension tries oMLX first, then LM Studio, then falls back to OpenAI-compatible.
 
+## Reasoning levels
+
+Thinking levels (`/thinking`) are forwarded as the OpenAI-style `reasoning_effort`
+field on `/v1/chat/completions`. What each backend advertises decides which
+levels you get:
+
+| Backend | Levels | Wire format |
+|---------|--------|-------------|
+| oMLX | whatever `/v1/models/status` advertises (`reasoning_effort_options`) | `reasoning_effort`, `enable_thinking` fallback |
+| OpenAI-compatible (llama.cpp, vLLM, ...) | `off`, `minimal`, `low`, `medium`, `high`, `xhigh` | `reasoning_effort` passed through |
+| LM Studio | pi default (`off` … `high`) | `reasoning_effort` |
+
+For servers we cannot identify (llama.cpp, including `llama-server`), the level is
+sent verbatim and `off` is sent as `reasoning_effort: "none"` — llama.cpp
+treats `"none"` as "don't think" (`enable_thinking = false`) rather than
+forwarding it to the chat template. Levels only take effect if the model's chat
+template reads `reasoning_effort`; llama.cpp ignores it otherwise. The server
+must not be started with `--reasoning off` (default `auto` is fine), and
+`--reasoning-effort` on the command line only sets the default that a request
+can override.
+
 ## Commands
 
-### `/local-login`
+### `/local-endpoints`
 
 Add or remove connections. Each connection is identified by its base URL.
 

@@ -1,3 +1,4 @@
+import { getSupportedThinkingLevels } from "@earendil-works/pi-ai/compat";
 import { describe, expect, it } from "vitest";
 import type { DiscoveredModel } from "../src/model-picker.ts";
 import {
@@ -104,6 +105,76 @@ describe("toModel (omlx)", () => {
 		);
 		expect(m.compat).toBeUndefined();
 		expect(m.thinkingLevelMap).toBeUndefined();
+	});
+});
+
+describe("toModel (unknown engine / OpenAI-generic)", () => {
+	const base: DiscoveredModel = {
+		id: "test-model",
+		displayName: "Test Model",
+		description: "",
+		loaded: false,
+	};
+
+	const GENERIC_MAP = {
+		off: "none",
+		minimal: "minimal",
+		low: "low",
+		medium: "medium",
+		high: "high",
+		xhigh: "xhigh",
+	};
+
+	it("claims reasoning and passes levels through up to xhigh", () => {
+		const m = toModel(base, "http://127.0.0.1:8000", "openai");
+		expect(m.reasoning).toBe(true);
+		expect(m.compat).toEqual({ supportsReasoningEffort: true });
+		expect(m.thinkingLevelMap).toEqual(GENERIC_MAP);
+	});
+
+	it("offers every pi level except max, including off", () => {
+		const m = toModel(base, "http://127.0.0.1:8000", "openai");
+		expect(getSupportedThinkingLevels(m)).toEqual([
+			"off",
+			"minimal",
+			"low",
+			"medium",
+			"high",
+			"xhigh",
+		]);
+		// Without the map, pi caps a reasoning model at "high".
+		expect(
+			getSupportedThinkingLevels({ ...m, thinkingLevelMap: undefined }),
+		).toEqual(["off", "minimal", "low", "medium", "high"]);
+	});
+
+	it("maps off to the value llama.cpp uses to disable thinking", () => {
+		const m = toModel(base, "http://127.0.0.1:8000", "openai");
+		expect(m.thinkingLevelMap?.off).toBe("none");
+	});
+
+	it("treats an unknown cached apiType as generic", () => {
+		const m = toModel(base, "http://127.0.0.1:8000");
+		expect(m.thinkingLevelMap).toEqual(GENERIC_MAP);
+	});
+
+	it("gives each model its own map", () => {
+		const a = toModel(base, "http://127.0.0.1:8000", "openai");
+		const b = toModel(base, "http://127.0.0.1:8080", "openai");
+		const aMap = a.thinkingLevelMap;
+		const bMap = b.thinkingLevelMap;
+		expect(aMap).not.toBe(bMap);
+		if (aMap && bMap) {
+			aMap.high = "mutated";
+			expect(bMap.high).toBe("high");
+		}
+	});
+
+	it("is left alone by adaptModelForRequest (nothing to swap)", () => {
+		const m = toModel(base, "http://127.0.0.1:8000", "openai");
+		for (const level of [undefined, "off", "xhigh"] as const) {
+			expect(adaptModelForRequest(m, level)).toBe(m);
+		}
 	});
 });
 
