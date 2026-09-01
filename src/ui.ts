@@ -37,6 +37,14 @@ function formatStatus(result: QueryResult): string | undefined {
 		const loaded = result.models.filter((m) => m.loaded).length;
 		return `${loaded}/${result.models.length} models loaded`;
 	}
+	// llama-swap reports per-model `status`, so the count is real here too. It
+	// is printed only once something is loaded: a plain OpenAI server sends no
+	// load state at all, and "0/N loaded" would read as a measurement rather
+	// than as silence.
+	if (result.apiType === "openai") {
+		const loaded = result.models.filter((m) => m.loaded).length;
+		if (loaded > 0) return `${loaded}/${result.models.length} models loaded`;
+	}
 	return undefined;
 }
 

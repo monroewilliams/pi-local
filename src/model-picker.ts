@@ -65,7 +65,10 @@ export interface OpenAIModelEntry {
 	 * the context window in tokens, `size` the model file in bytes. Other
 	 * servers (vLLM, TF Serving, ...) omit `meta` entirely.
 	 */
-	meta?: { n_ctx?: number; size?: number };
+	meta?: {
+		n_ctx?: number;
+		size?: number;
+	};
 	/**
 	 * Also not in the OpenAI spec, and flat rather than under `meta`: vLLM's
 	 * model card carries the context window here. The key is always present and
@@ -74,6 +77,32 @@ export interface OpenAIModelEntry {
 	max_model_len?: number | null;
 	/** vLLM: id of the base model a LoRA adapter was trained from. */
 	parent?: string | null;
+	/**
+	 * llama-swap: the operator's `name:` for this model, echoed on every card
+	 * including its aliases. Absent when the config left it unset, which is
+	 * most configs — fall back to `id`.
+	 */
+	name?: string;
+	/**
+	 * llama-swap: live process state, `{"value":"loaded"|"unloaded"}`. Unlike
+	 * everything else on this card it is not config — it reflects whether the
+	 * backing server process is up right now. A selector reports `loaded` when
+	 * any of its targets is ready.
+	 */
+	status?: { value?: string };
+	/**
+	 * llama-swap: derived from the operator's `capabilities:` block. Only `vision`
+	 * is read — the block also carries `function_calling` and `reranker`, and
+	 * `supported_parameters` sits beside it, but pi's `Model` has no slot for
+	 * either. Keys are only ever emitted when true, so an absent `vision` means
+	 * "not advertised", not "text-only".
+	 */
+	capabilities?: { vision?: boolean };
+	/**
+	 * llama-swap: the same `capabilities.in`, as a modality list. Read as the
+	 * fallback when `capabilities` is absent entirely.
+	 */
+	architecture?: { input_modalities?: string[] };
 }
 
 interface OpenAIModelsResponse {
@@ -97,6 +126,12 @@ export interface DiscoveredModel {
 	contextWindow?: number;
 	maxTokens?: number;
 	modelType?: string;
+	/**
+	 * Accepts image input. Explicit rather than inferred from `modelType` so a
+	 * server that advertises modality without a type string (llama-swap) can
+	 * register as multimodal without inventing a display type.
+	 */
+	vision?: boolean;
 	sizeBytes?: number;
 	pinned?: boolean;
 	favorite?: boolean;
@@ -279,12 +314,16 @@ async function queryOpenAI(
 /**
  * Map a plain OpenAI-compatible /v1/models payload to discovered models.
  *
- * Two servers here report more than an id, and they disagree on where to put
+ * Three servers here report more than an id, and they disagree on where to put
  * it: llama.cpp nests a `meta` object (`n_ctx` in tokens, `size` in bytes),
- * vLLM puts the same quantity flat on the card as `max_model_len`. Both mean
- * "the context window this server will hold you to" — vLLM resolves its number
- * against the KV cache that actually fit, so it is the authoritative figure
- * even when the operator launched with a larger one. `size` is display-only.
+ * vLLM puts the same quantity flat on the card as `max_model_len`, llama-swap
+ * mirrors it into `context_length`/`context_window`/`meta.n_ctx` and adds the
+ * operator's `name`, live `status` and `capabilities`. The context figures all
+ * mean "the window this server will hold you to" — vLLM resolves its number
+ * against the KV cache that actually fit, so it is the authoritative figure even
+ * when the operator launched with a larger one; llama-swap's is whatever the
+ * operator declared in `capabilities.context`, which is the number to honour
+ * since llama-swap is the thing answering the request. `size` is display-only.
  *
  * Servers advertising neither leave both undefined, so the right-hand column
  * of the model list stays blank (and provider.ts falls back to its default
@@ -300,17 +339,26 @@ export function mapOpenAiModels(data: OpenAIModelEntry[]): DiscoveredModel[] {
 
 	for (const entry of data) {
 		if (!entry || typeof entry.id !== "string") continue;
+		const vision = advertisedVision(entry);
 		const model: DiscoveredModel = {
 			id: entry.id,
-			displayName: entry.id,
+			// llama-swap's `name` is the operator's own label; every other server
+			// in this path omits it and shows its id.
+			displayName: entry.name?.trim() || entry.id,
 			description: "", // filled below, once every field is known
-			loaded: false,
+			// llama-swap only; llama.cpp and vLLM send no `status`, and a card
+			// that does not say "loaded" is not claimed to be one.
+			loaded: entry.status?.value === "loaded",
 			// `meta` first: llama.cpp is the incumbent and its reading is
 			// unchanged by the vLLM field, which no llama.cpp build emits.
 			contextWindow:
 				positiveNumber(entry.meta?.n_ctx) ??
 				positiveNumber(entry.max_model_len),
 			sizeBytes: positiveNumber(entry.meta?.size),
+			vision,
+			// Only a server that states a modality gets a type; an unmodality-
+			// aware card keeps the column blank rather than guessing "llm".
+			modelType: vision === undefined ? undefined : vision ? "vlm" : "llm",
 		};
 		if (model.contextWindow) contexts.set(model.id, model.contextWindow);
 		if (typeof entry.parent === "string" && entry.parent)
@@ -473,6 +521,22 @@ function formatContext(tokens: number): string {
 }
 
 /**
+ * Whether a card advertises image input, or `undefined` when it says nothing
+ * about modality.
+ *
+ * llama-swap emits `capabilities.vision` only when true (it is written out of
+ * `capabilities.in`, never as an explicit false), so an absent key cannot be
+ * read as text-only — hence the fallback to the modality lists, which are the
+ * same config rendered the other way and *do* carry `text` on its own.
+ */
+function advertisedVision(entry: OpenAIModelEntry): boolean | undefined {
+	if (entry.capabilities?.vision === true) return true;
+	const inputs = entry.architecture?.input_modalities;
+	if (Array.isArray(inputs)) return inputs.includes("image");
+	return undefined;
+}
+
+/**
  * Right-hand column of the model list for servers that report no more than
  * OpenAI's `/v1/models` requires: `|  88.0G, ctx:  256k`, same field widths as
  * the oMLX backend. Fields that are missing are left out; when both are the
@@ -483,6 +547,7 @@ function formatModelColumn(model: DiscoveredModel): string {
 	if (model.sizeBytes) parts.push(`|${formatBytes(model.sizeBytes)}`);
 	if (model.contextWindow)
 		parts.push(`ctx:${formatContext(model.contextWindow)}`);
+	if (model.modelType) parts.push(model.modelType);
 	return parts.join(", ");
 }
 

@@ -140,6 +140,109 @@ describe("mapOpenAiModels on a vLLM response", () => {
 	});
 });
 
+describe("mapOpenAiModels on a llama-swap response", () => {
+	it("reads the operator's declared context out of meta.n_ctx", () => {
+		// llama-swap renders `capabilities.context` into context_length,
+		// context_window and meta.n_ctx alike; the existing meta reading already
+		// covers it, so this pins that llama-swap needs no new plumbing.
+		const [m] = mapOpenAiModels([LLAMASWAP_CARD]);
+		expect(m.contextWindow).toBe(131072);
+		expect(toModel(m, "http://127.0.0.1:8080", "openai").contextWindow).toBe(
+			131072,
+		);
+	});
+
+	it("falls back to its default when the operator declared no context", () => {
+		// `capabilities.context` defaults to 0, and llama-swap omits the key
+		// entirely rather than sending 0.
+		const [m] = mapOpenAiModels([LLAMASWAP_BARE]);
+		expect(m.contextWindow).toBeUndefined();
+		expect(toModel(m, "http://127.0.0.1:8080", "openai").contextWindow).toBe(
+			128000,
+		);
+	});
+
+	it("uses the operator's name as the display name", () => {
+		const [m] = mapOpenAiModels([LLAMASWAP_CARD]);
+		expect(m.displayName).toBe("Qwen3 32B");
+		expect(toModel(m, "http://127.0.0.1:8080", "openai").name).toBe(
+			"Qwen3 32B",
+		);
+	});
+
+	it("keeps the id when the name is unset or blank", () => {
+		const [unset, blank] = mapOpenAiModels([
+			LLAMASWAP_BARE,
+			{ ...LLAMASWAP_CARD, name: "   " },
+		]);
+		expect(unset.displayName).toBe("qwen3-32b-Q4_K_M");
+		expect(blank.displayName).toBe("qwen3-32b-Q4_K_M");
+	});
+
+	it("carries live load state, which the other backends' cards leave false", () => {
+		const [loaded, unloaded] = mapOpenAiModels([
+			{ ...LLAMASWAP_CARD, status: { value: "loaded" } },
+			LLAMASWAP_CARD,
+		]);
+		expect(loaded.loaded).toBe(true);
+		expect(unloaded.loaded).toBe(false);
+		// A card from a server that sends no status at all is not "unloaded by
+		// measurement", it is silent — same value, different reason.
+		expect(mapOpenAiModels([LLAMA_CPP_ENTRY])[0].loaded).toBe(false);
+	});
+
+	it("registers a vision model for image input", () => {
+		const [m] = mapOpenAiModels([LLAMASWAP_CARD]);
+		expect(m.vision).toBe(true);
+		expect(m.modelType).toBe("vlm");
+		expect(toModel(m, "http://127.0.0.1:8080", "openai").input).toEqual([
+			"text",
+			"image",
+		]);
+	});
+
+	it("reads vision from the modality lists when capabilities is absent", () => {
+		// capabilities.vision is only ever emitted when true, so an absent key
+		// is not evidence of text-only; the modality lists are.
+		const [vision] = mapOpenAiModels([
+			{
+				id: "vlm",
+				architecture: { input_modalities: ["text", "image"] },
+			},
+		]);
+		expect(vision.vision).toBe(true);
+		expect(toModel(vision, "http://127.0.0.1:8080", "openai").input).toEqual([
+			"text",
+			"image",
+		]);
+
+		const [text] = mapOpenAiModels([
+			{ id: "llm", architecture: { input_modalities: ["text"] } },
+		]);
+		expect(text.vision).toBe(false);
+		expect(text.modelType).toBe("llm");
+		expect(toModel(text, "http://127.0.0.1:8080", "openai").input).toEqual([
+			"text",
+		]);
+	});
+
+	it("leaves modality unknown when the server says nothing about it", () => {
+		const [m] = mapOpenAiModels([LLAMASWAP_BARE]);
+		expect(m.vision).toBeUndefined();
+		expect(m.modelType).toBeUndefined();
+		expect(m.description).toBe("");
+		expect(toModel(m, "http://127.0.0.1:8080", "openai").input).toEqual([
+			"text",
+		]);
+	});
+
+	it("appends the type to the column without disturbing the widths", () => {
+		const [vision] = mapOpenAiModels([LLAMASWAP_CARD]);
+		// llama-swap reports no model file size, so the size half stays blank.
+		expect(vision.description).toBe("ctx: 128k, vlm");
+	});
+});
+
 /** A vLLM `/v1/models` entry, fields and all. `permission` and `owned_by` are
  *  not read here, just present as they are in a live response. */
 const VLLM_BASE_CARD = {
@@ -163,4 +266,44 @@ const VLLM_ADAPTER_CARD = {
 	parent: "Qwen/Qwen3-0.6B",
 	max_model_len: null,
 	permission: [{ id: "modelperm-def", object: "model_permission" }],
+} as OpenAIModelEntry;
+
+/**
+ * A llama-swap `/v1/models` card, captured from a live llama-swap v252 rather
+ * than written by hand — every field here is what the server actually sent for
+ * a config setting `name`, `capabilities.in: [text, image]`, `tools: true` and
+ * `context: 131072`. The shape is llama-swap's `modelRecord`
+ * (`internal/server/api.go`), stable across releases.
+ */
+const LLAMASWAP_CARD = {
+	id: "qwen3-32b-Q4_K_M",
+	object: "model",
+	created: 1788303342,
+	owned_by: "llama-swap",
+	name: "Qwen3 32B",
+	description: "general purpose",
+	architecture: {
+		input_modalities: ["text", "image"],
+		output_modalities: ["text"],
+		modality: "text+image->text",
+	},
+	capabilities: { function_calling: true, vision: true },
+	supported_parameters: ["tools", "tool_choice"],
+	context_length: 131072,
+	context_window: 131072,
+	meta: {
+		n_ctx: 131072,
+		llamaswap: { type: "model", aliases: ["qwen alias"], note: "ctx=131072" },
+	},
+	status: { value: "unloaded" },
+} as OpenAIModelEntry;
+
+/** The same server with a bare config: no name, no capabilities, no context. */
+const LLAMASWAP_BARE = {
+	id: "qwen3-32b-Q4_K_M",
+	object: "model",
+	created: 1788303342,
+	owned_by: "llama-swap",
+	meta: { llamaswap: { type: "model" } },
+	status: { value: "unloaded" },
 } as OpenAIModelEntry;

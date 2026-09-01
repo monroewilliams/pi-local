@@ -133,7 +133,8 @@ export function toModel(
 		reasoning,
 		compat,
 		thinkingLevelMap,
-		input: m.modelType?.includes("vlm") ? ["text", "image"] : ["text"],
+		input:
+			m.vision || m.modelType?.includes("vlm") ? ["text", "image"] : ["text"],
 		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 		contextWindow: m.contextWindow ?? DEFAULT_CONTEXT_WINDOW,
 		maxTokens: m.maxTokens ?? DEFAULT_MAX_TOKENS,
