@@ -319,11 +319,21 @@ export default function (pi: ExtensionAPI): void {
 
 			// Set active model. Use the full toModel output (not a bare object)
 			// so compat/thinkingLevelMap survive — setModel stores the object as-is.
-			const success = await pi.setModel(
-				toModel(model, selectedConn.baseUrl, refreshed.apiType),
-			);
+			const selected = toModel(model, selectedConn.baseUrl, refreshed.apiType);
+			const success = await pi.setModel(selected);
 
 			if (success) {
+				// pi.setModel() is session-only: AgentSession.setModel() writes
+				// defaultProvider/defaultModel only when options.persist is set, and the
+				// extension API doesn't expose that flag. Persist the choice here so it
+				// survives a restart. Writes are per-field merges taken under a file
+				// lock, so nothing else in settings.json is affected. Pi's own in-memory
+				// copy stays stale until restart, which only shows up as the "· default"
+				// badge in /model lagging behind.
+				SettingsManager.create(
+					process.cwd(),
+					getAgentDir(),
+				).setDefaultModelAndProvider(selected.provider, selected.id);
 				ctx.ui.notify(`Using model: ${model.displayName}`);
 			} else {
 				ctx.ui.notify("Failed to set model.", "error");
