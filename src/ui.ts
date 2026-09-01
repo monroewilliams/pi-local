@@ -1,4 +1,7 @@
-import type { ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import type {
+	ExtensionCommandContext,
+	ThemeColor,
+} from "@earendil-works/pi-coding-agent";
 import {
 	type Component,
 	Container,
@@ -80,7 +83,11 @@ class Border implements Component {
 
 class LocalPickerView implements Focusable {
 	private tui: TUI;
-	private fg: (color: string, text: string) => string;
+	/**
+	 * Narrowed to pi's own color vocabulary so callers hand `theme.fg` a color
+	 * it accepts instead of casting one loose through `any`.
+	 */
+	private fg: (color: ThemeColor, text: string) => string;
 	private bold: (text: string) => string;
 	private done: (action: LocalPickerAction) => void;
 	private content = new Container();
@@ -91,7 +98,7 @@ class LocalPickerView implements Focusable {
 
 	constructor(
 		tui: TUI,
-		fg: (color: string, text: string) => string,
+		fg: (color: ThemeColor, text: string) => string,
 		bold: (text: string) => string,
 		done: (action: LocalPickerAction) => void,
 		baseUrl: string,
@@ -275,7 +282,7 @@ export async function showLocalPicker(
 			(tui, theme, _keybindings, done) => {
 				const view = new LocalPickerView(
 					tui,
-					(c, t) => theme.fg(c as any, t),
+					(c, t) => theme.fg(c, t),
 					(t) => theme.bold(t),
 					done,
 					baseUrl,

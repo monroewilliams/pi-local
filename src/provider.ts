@@ -233,10 +233,10 @@ export function createLocalProvider(
 					credential?: ApiKeyCredential;
 				}): Promise<AuthResult | undefined> => {
 					let key = credential?.key;
-					if (!key || !key.trim()) {
+					if (!key?.trim()) {
 						key = resolveApiKey(storedApiKey);
 					}
-					if (!key || !key.trim()) {
+					if (!key?.trim()) {
 						const envKey = (await ctx.env("API_KEY"))?.trim();
 						if (envKey) key = envKey;
 					}
