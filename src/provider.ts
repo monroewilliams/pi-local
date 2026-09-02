@@ -111,12 +111,21 @@ export function toModel(
 			// for minimal/low/medium/high.
 			compat = { thinkingFormat: "qwen-chat-template" as const };
 		}
-	} else if (apiType === undefined || apiType === "openai") {
+	} else if (
+		apiType === undefined ||
+		apiType === "openai" ||
+		apiType === "llamaswap"
+	) {
 		// "I don't know which engine this is" (llama.cpp lands here: its
 		// /v1/models advertises nothing about reasoning). No per-format
 		// thinkingFormat, just pi's OpenAI-generic branch: send the selected
 		// level as top-level `reasoning_effort`, "none" to disable thinking.
 		// LM Studio is excluded — it advertises its own reasoning vocabulary.
+		//
+		// llama-swap is in here on purpose and not by omission: it is a proxy
+		// that rewrites only `model` in the request body and forwards
+		// `reasoning_effort` and `chat_template_kwargs` untouched, so thinking
+		// behaves exactly like whatever engine sits behind it.
 		thinkingLevelMap = buildPassthroughThinkingLevelMap();
 		compat = { supportsReasoningEffort: true };
 	}

@@ -15,7 +15,11 @@ import {
 	truncateToWidth,
 	visibleWidth,
 } from "@earendil-works/pi-tui";
-import type { DiscoveredModel, QueryResult } from "./model-picker.ts";
+import {
+	type DiscoveredModel,
+	type QueryResult,
+	supportsLoadUnload,
+} from "./model-picker.ts";
 
 // ============================================================================
 // Types
@@ -110,8 +114,7 @@ class LocalPickerView implements Focusable {
 		this.bold = bold;
 		this.done = done;
 		this.models = result.models;
-		this.hasLoadUnload =
-			result.apiType === "omlx" || result.apiType === "lmstudio";
+		this.hasLoadUnload = supportsLoadUnload(result.apiType);
 		this.build(baseUrl, result, initialSelectedId);
 	}
 
@@ -129,8 +132,7 @@ class LocalPickerView implements Focusable {
 		initialSelectedId?: string,
 	): void {
 		this.models = result.models;
-		this.hasLoadUnload =
-			result.apiType === "omlx" || result.apiType === "lmstudio";
+		this.hasLoadUnload = supportsLoadUnload(result.apiType);
 
 		const items: SelectItem[] = this.models.map((m) => {
 			const { label, description } = formatItem(m);

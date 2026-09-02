@@ -103,6 +103,12 @@ export interface OpenAIModelEntry {
 	 * fallback when `capabilities` is absent entirely.
 	 */
 	architecture?: { input_modalities?: string[] };
+	/**
+	 * Who serves this card: `"llama-swap"`, `"vllm"`, `"llama.cpp"`. Read to
+	 * recognise llama-swap out of the generic OpenAI tier, which is the only
+	 * way to know that load/unload are available on it.
+	 */
+	owned_by?: string;
 }
 
 interface OpenAIModelsResponse {
@@ -116,7 +122,21 @@ interface OpenAIModelsResponse {
 // between runs if the server behind the endpoint changes.
 // ============================================================================
 
-export type ApiType = "omlx" | "lmstudio" | "openai";
+export type ApiType = "omlx" | "lmstudio" | "llamaswap" | "openai";
+
+/**
+ * Whether this server exposes load/unload controls worth showing.
+ *
+ * The generic OpenAI path does not: a bare `/v1/models` server offers nothing
+ * to call. llama-swap does, in its own way — dispatch to load, a named
+ * endpoint to unload — so it qualifies even though it answers the generic
+ * listing.
+ */
+export function supportsLoadUnload(apiType: ApiType): boolean {
+	return (
+		apiType === "omlx" || apiType === "lmstudio" || apiType === "llamaswap"
+	);
+}
 
 export interface DiscoveredModel {
 	id: string;
@@ -127,9 +147,11 @@ export interface DiscoveredModel {
 	maxTokens?: number;
 	modelType?: string;
 	/**
-	 * Accepts image input. Explicit rather than inferred from `modelType` so a
-	 * server that advertises modality without a type string (llama-swap) can
-	 * register as multimodal without inventing a display type.
+	 * Accepts image input, read straight off the server's modality advertisement
+	 * rather than inferred from `modelType`. `modelType` is set alongside it
+	 * where a type is implied, because the cached-model path in index.ts restores
+	 * `modelType` but not `vision` — both readings keep a multimodal model
+	 * multimodal across a restart.
 	 */
 	vision?: boolean;
 	sizeBytes?: number;
@@ -308,7 +330,17 @@ async function queryOpenAI(
 	);
 	if (!res?.data?.length) return { apiType: "openai", models: [] };
 
-	return { apiType: "openai", models: mapOpenAiModels(res.data) };
+	// llama-swap stamps `owned_by: "llama-swap"` on every card it serves, so
+	// the listing we already fetched identifies it — no extra probe. Knowing it
+	// is llama-swap buys load/unload, which the generic path has neither.
+	const isLlamaSwap = res.data.some(
+		(entry) => entry?.owned_by === "llama-swap",
+	);
+
+	return {
+		apiType: isLlamaSwap ? "llamaswap" : "openai",
+		models: mapOpenAiModels(res.data),
+	};
 }
 
 /**
@@ -418,6 +450,13 @@ export async function loadModel(
 			return execApi(`${baseUrl}/api/v1/models/load`, apiKey, "POST", {
 				model: modelId,
 			});
+		case "llamaswap":
+			// llama-swap has no load endpoint: dispatching a request to a model is
+			// what swaps its server in. `/props?model=` is the cheapest route that
+			// dispatches — a GET that asks for properties, so no tokens are
+			// generated, and the process is up and health-checked by the time it
+			// returns (~0.3s here, plus however long the model takes to load).
+			return execLlamaSwapLoad(baseUrl, apiKey, modelId);
 		case "openai":
 			return { error: "load not supported" };
 	}
@@ -436,6 +475,15 @@ export async function unloadModel(
 			return execApi(`${baseUrl}/api/v1/models/unload`, apiKey, "POST", {
 				instance_id: modelId,
 			});
+		case "llamaswap":
+			// Answers 200 with the plain text "OK", not JSON, so nothing here may
+			// assume a body. Selectors are not processes and answer 404; the caller
+			// re-queries either way, and the refreshed listing is the truth.
+			return execExpectOk(
+				`${baseUrl}/api/models/unload/${encodeURIComponent(modelId)}`,
+				apiKey,
+				"POST",
+			);
 		case "openai":
 			return { error: "unload not supported" };
 	}
@@ -508,6 +556,97 @@ async function execApi(
 	} catch (err) {
 		return { error: err instanceof Error ? err.message : String(err) };
 	}
+}
+
+/**
+ * Fire a request whose job is the side effect, not the response.
+ *
+ * Returns `{ ok: true }` on any 2xx without touching the body — llama-swap's
+ * unload answers `OK` as plain text, and parsing it as JSON would turn a
+ * successful unload into a reported failure.
+ */
+async function execExpectOk(
+	url: string,
+	apiKey: string,
+	method = "POST",
+): Promise<unknown> {
+	try {
+		const res = await fetch(url, {
+			method,
+			headers: { Authorization: `Bearer ${apiKey}` },
+		});
+		if (res.ok) return { ok: true };
+		return { error: (await llamaSwapOwnError(res)) ?? `HTTP ${res.status}` };
+	} catch (err) {
+		return { error: err instanceof Error ? err.message : String(err) };
+	}
+}
+
+/**
+ * Start a model's server by dispatching `/props?model=` at it.
+ *
+ * A 404 here is ambiguous and the two cases are told apart by who answered:
+ * llama-swap's own rejections are its OpenAI-shaped error envelope
+ * (`{"src":"llama-swap",...}`), while a 404 from the upstream arrives after
+ * the model is already loaded — `/props` is a llama.cpp route, so vLLM and
+ * friends do not implement it, and the load still happened. Only the first is
+ * a failure; the second is reported as success and the caller's refresh shows
+ * the state.
+ *
+ * No timeout: this blocks while a model loads, which can be minutes for a
+ * large one, and the picker is showing "Loading" the whole time.
+ */
+async function execLlamaSwapLoad(
+	baseUrl: string,
+	apiKey: string,
+	modelId: string,
+): Promise<unknown> {
+	try {
+		const res = await fetch(
+			`${baseUrl}/props?model=${encodeURIComponent(modelId)}`,
+			{ headers: { Authorization: `Bearer ${apiKey}` } },
+		);
+		const own = await llamaSwapOwnError(res);
+		// `own` is the only real failure: llama-swap could not route the model.
+		// Any other status — including an upstream's 404 for a route it does not
+		// implement — arrives after the dispatch, so the model is loaded and the
+		// caller's refresh is what the user judges by.
+		if (own) return { error: own };
+		return { ok: true };
+	} catch (err) {
+		return { error: err instanceof Error ? err.message : String(err) };
+	}
+}
+
+/**
+ * The message from llama-swap's own error envelope, or `null` if this response
+ * did not come from it.
+ *
+ * Its rejections are `{"src":"llama-swap","error":{"message":...}}`. A body
+ * without that `src` came from the upstream, which is the discriminator that
+ * separates "this model does not exist" from "this model exists and answered
+ * with something we did not expect".
+ */
+async function llamaSwapOwnError(res: Response): Promise<string | null> {
+	if (res.ok) return null;
+	let text = "";
+	try {
+		text = await res.text();
+	} catch {
+		return null; // body unreadable: not evidence of anything
+	}
+	try {
+		const parsed = JSON.parse(text) as {
+			src?: string;
+			error?: { message?: string };
+		};
+		if (parsed?.src === "llama-swap") {
+			return parsed.error?.message || "llama-swap rejected the request";
+		}
+	} catch {
+		/* not JSON — an upstream or proxy error page */
+	}
+	return null;
 }
 
 function formatBytes(bytes: number): string {
