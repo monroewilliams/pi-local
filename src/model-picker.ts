@@ -1,3 +1,5 @@
+import { describeThinking } from "./thinking.ts";
+
 // ============================================================================
 // API Response Types (from various local inference servers)
 // ============================================================================
@@ -9,11 +11,9 @@ interface OmlxModelsStatusResponse {
 		model_alias?: string | null;
 		max_context_window?: number;
 		max_tokens?: number;
-		enable_thinking?: boolean | null;
 		thinking_default?: boolean | null;
 		preserve_thinking_default?: boolean | null;
 		reasoning_effort_options?: string[] | null;
-		reasoning_effort_default?: string | null;
 		model_type?: string | null;
 		config_model_type?: string | null;
 		loaded?: boolean;
@@ -160,6 +160,16 @@ export interface DiscoveredModel {
 	reasoning?: boolean;
 	/** Strict reasoning_effort vocabulary advertised by the server (oMLX discovery). */
 	reasoningEffortOptions?: string[];
+	/**
+	 * Template default for `enable_thinking`, present when the template has that
+	 * knob. Carried separately from `reasoning` because the two answer different
+	 * questions: `reasoning` is "can it think", this is "does it take
+	 * enable_thinking". A GLM-family model thinks through `clear_thinking` and
+	 * leaves this absent.
+	 */
+	thinkingDefault?: boolean;
+	/** Template default for `preserve_thinking` / inverse of `clear_thinking`. */
+	preserveThinkingDefault?: boolean;
 	leftExtras?: string; // internal: quant/publisher for LM Studio display
 }
 
@@ -197,17 +207,17 @@ async function queryOmlx(
 		const alias = entry.model_alias || entry.display_name || entry.id;
 		const configModelType = (entry.config_model_type || type).toLowerCase();
 
-		const reasoning = entry.thinking_default != null ? true : undefined;
-		const rawEffortOptions = entry.reasoning_effort_options;
+		const thinking = describeThinking(entry);
+		// pi gates the whole thinking control on `reasoning`, so it stays true for
+		// every oMLX model. Whether a model thinks is settled by what the user
+		// observes, not by a pattern match on its template: Nemotron-3.5-Lightning
+		// answers to the toggle while its template names no levels, so any badge
+		// this code could draw would be a guess in both directions. The picker
+		// therefore shows the model type alone and lets the ladder speak for itself.
+		const reasoning = true;
 		const reasoningEffortOptions =
-			Array.isArray(rawEffortOptions) &&
-			rawEffortOptions.length > 0 &&
-			rawEffortOptions.every((o) => typeof o === "string")
-				? rawEffortOptions
-				: undefined;
-		const modelType = [reasoning ? "🧠" : "🤖", type, configModelType]
-			.filter(Boolean)
-			.join("/");
+			thinking.effortOptions.length > 0 ? thinking.effortOptions : undefined;
+		const modelType = [type, configModelType].filter(Boolean).join("/");
 
 		models.push({
 			id: entry.id,
@@ -222,6 +232,8 @@ async function queryOmlx(
 			sizeBytes: entry.estimated_size,
 			reasoning,
 			reasoningEffortOptions,
+			thinkingDefault: thinking.thinkingDefault,
+			preserveThinkingDefault: thinking.preserveThinkingDefault,
 		});
 	}
 
@@ -275,9 +287,10 @@ async function queryLmStudio(
 		const format = entry.format || "";
 		const architecture = entry.architecture || "";
 		const reasoning = entry.capabilities?.reasoning ? true : undefined;
-		const modelType = [reasoning ? "🧠" : "🤖", format, rawType, architecture]
-			.filter(Boolean)
-			.join("/");
+		// No capability badge. LM Studio does advertise `capabilities.reasoning`,
+		// so this one would have been the server's claim rather than ours — say the
+		// word if you want it back. The column carries the model's shape instead.
+		const modelType = [format, rawType, architecture].filter(Boolean).join("/");
 
 		// Append leftExtras to displayName so it appears in the label column
 		const baseName = entry.display_name || entry.key;
@@ -650,7 +663,7 @@ async function llamaSwapOwnError(res: Response): Promise<string | null> {
 }
 
 function formatBytes(bytes: number): string {
-	return `${((bytes / (1024 * 1024 * 1024)).toFixed(1)).padStart(6)}G`;
+	return `${(bytes / (1024 * 1024 * 1024)).toFixed(1).padStart(6)}G`;
 }
 
 function formatContext(tokens: number): string {

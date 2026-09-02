@@ -18,6 +18,12 @@ export interface StoredConnection {
 			maxTokens?: number;
 			reasoning?: boolean;
 			reasoningEffortOptions?: string[];
+			/**
+			 * Cached alongside reasoning so a restart doesn't lose which knob the
+			 * template has — `reasoning` alone cannot rebuild the compat choice.
+			 */
+			thinkingDefault?: boolean;
+			preserveThinkingDefault?: boolean;
 			modelType?: string;
 			pinned?: boolean;
 			favorite?: boolean;

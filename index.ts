@@ -54,6 +54,8 @@ function registerAllConnections(pi: ExtensionAPI): void {
 									reasoning: meta.reasoning,
 									reasoningEffortOptions: meta.reasoningEffortOptions,
 									modelType: meta.modelType,
+									thinkingDefault: meta.thinkingDefault,
+									preserveThinkingDefault: meta.preserveThinkingDefault,
 									pinned: meta.pinned,
 									favorite: meta.favorite,
 								},
@@ -87,6 +89,8 @@ function registerAllConnections(pi: ExtensionAPI): void {
 										reasoning: meta.reasoning,
 										reasoningEffortOptions: meta.reasoningEffortOptions,
 										modelType: meta.modelType,
+										thinkingDefault: meta.thinkingDefault,
+										preserveThinkingDefault: meta.preserveThinkingDefault,
 										pinned: meta.pinned,
 										favorite: meta.favorite,
 									});
@@ -218,9 +222,8 @@ export default function (pi: ExtensionAPI): void {
 			}
 
 			// Lazy-import heavy modules
-			const { queryConnection, loadModel, unloadModel } = await import(
-				"./src/model-picker.ts"
-			);
+			const { queryConnection, loadModel, unloadModel } =
+				await import("./src/model-picker.ts");
 			const { showLocalPicker } = await import("./src/ui.ts");
 
 			const queryModels = async () =>
@@ -293,6 +296,8 @@ export default function (pi: ExtensionAPI): void {
 					reasoning: m.reasoning,
 					reasoningEffortOptions: m.reasoningEffortOptions,
 					modelType: m.modelType,
+					thinkingDefault: m.thinkingDefault,
+					preserveThinkingDefault: m.preserveThinkingDefault,
 					pinned: m.pinned,
 					favorite: m.favorite,
 				};
