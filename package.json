@@ -1,6 +1,6 @@
 {
 	"name": "@monroewilliams/pi-local",
-	"version": "0.3.6",
+	"version": "0.3.7",
 	"type": "module",
 	"description": "Pi extension for configuring multiple local LLM inference engine connections.",
 	"main": "./index.ts",
