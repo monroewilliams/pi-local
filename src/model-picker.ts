@@ -60,52 +60,50 @@ export interface OpenAIModelEntry {
 	id: string;
 	object?: string;
 	/**
-	 * Not in the OpenAI spec: llama.cpp describes the model here. `n_ctx` is
-	 * the context window in tokens, `size` the model file in bytes. Other
-	 * servers (vLLM, TF Serving, ...) omit `meta` entirely.
+	 * Not in the OpenAI spec. llama.cpp describes the model here: `n_ctx` is the
+	 * context window in tokens, `size` the model file in bytes. vLLM and other
+	 * servers omit `meta`.
 	 */
 	meta?: {
 		n_ctx?: number;
 		size?: number;
 	};
 	/**
-	 * Also not in the OpenAI spec, and flat rather than under `meta`: vLLM's
-	 * model card carries the context window here. The key is always present and
-	 * null for LoRA adapters, whose context is their base model's (`parent`).
+	 * Not in the OpenAI spec, and flat rather than under `meta`. vLLM carries the
+	 * context window here. The key is always present and null for LoRA adapters,
+	 * whose context is their base model's (`parent`).
 	 */
 	max_model_len?: number | null;
 	/** vLLM: id of the base model a LoRA adapter was trained from. */
 	parent?: string | null;
 	/**
-	 * llama-swap: the operator's `name:` for this model, echoed on every card
-	 * including its aliases. Absent when the config left it unset, which is
-	 * most configs — fall back to `id`.
+	 * llama-swap: the operator's `name:` for this model, on every card including
+	 * its aliases. The field is omitted when the config leaves it unset, so fall
+	 * back to `id`.
 	 */
 	name?: string;
 	/**
-	 * llama-swap: live process state, `{"value":"loaded"|"unloaded"}`. Unlike
-	 * everything else on this card it is not config — it reflects whether the
-	 * backing server process is up right now. A selector reports `loaded` when
-	 * any of its targets is ready.
+	 * llama-swap: live process state, `{"value":"loaded"|"unloaded"}`. The rest of
+	 * the card is config; this is whether the backing process is up now. A
+	 * selector reports `loaded` when any of its targets is ready.
 	 */
 	status?: { value?: string };
 	/**
 	 * llama-swap: derived from the operator's `capabilities:` block. Only `vision`
-	 * is read — the block also carries `function_calling` and `reranker`, and
-	 * `supported_parameters` sits beside it, but pi's `Model` has no slot for
-	 * either. Keys are only ever emitted when true, so an absent `vision` means
+	 * is read; the block also carries `function_calling` and `reranker`, which pi
+	 * has no field for. Keys appear only when true, so an absent `vision` means
 	 * "not advertised", not "text-only".
 	 */
 	capabilities?: { vision?: boolean };
 	/**
-	 * llama-swap: the same `capabilities.in`, as a modality list. Read as the
-	 * fallback when `capabilities` is absent entirely.
+	 * llama-swap: the same `capabilities.in` as a modality list. Read when
+	 * `capabilities` is absent.
 	 */
 	architecture?: { input_modalities?: string[] };
 	/**
-	 * Who serves this card: `"llama-swap"`, `"vllm"`, `"llama.cpp"`. Read to
-	 * recognise llama-swap out of the generic OpenAI tier, which is the only
-	 * way to know that load/unload are available on it.
+	 * Who serves this card: `"llama-swap"`, `"vllm"`, `"llamacpp"`. Read to pick
+	 * llama-swap out of the generic tier, which is how load and unload become
+	 * available on it.
 	 */
 	owned_by?: string;
 }
@@ -117,7 +115,7 @@ interface OpenAIModelsResponse {
 
 // ============================================================================
 // Discovered Model (unified representation)
-// apiType is NOT stored on models — it's determined per-query and may differ
+// apiType is NOT stored on models. It is determined per-query and can differ
 // between runs if the server behind the endpoint changes.
 // ============================================================================
 
@@ -126,10 +124,9 @@ export type ApiType = "omlx" | "lmstudio" | "llamaswap" | "openai";
 /**
  * Whether this server exposes load/unload controls worth showing.
  *
- * The generic OpenAI path does not: a bare `/v1/models` server offers nothing
- * to call. llama-swap does, in its own way — dispatch to load, a named
- * endpoint to unload — so it qualifies even though it answers the generic
- * listing.
+ * The generic OpenAI path does not: a bare `/v1/models` server offers nothing to
+ * call. llama-swap does, by dispatching to load and by a named unload endpoint,
+ * so it qualifies even though it answers the generic listing.
  */
 export function supportsLoadUnload(apiType: ApiType): boolean {
 	return (
@@ -146,25 +143,23 @@ export interface DiscoveredModel {
 	maxTokens?: number;
 	modelType?: string;
 	/**
-	 * Accepts image input, read straight off the server's modality advertisement
-	 * rather than inferred from `modelType`. `modelType` is set alongside it
-	 * where a type is implied, because the cached-model path in index.ts restores
-	 * `modelType` but not `vision` — both readings keep a multimodal model
-	 * multimodal across a restart.
+	 * Accepts image input. Read off the server's modality advertisement rather
+	 * than inferred from `modelType`. Both are set where a type is implied,
+	 * because the cached-model path in index.ts restores `modelType` but not
+	 * `vision`.
 	 */
 	vision?: boolean;
 	sizeBytes?: number;
 	pinned?: boolean;
 	favorite?: boolean;
 	reasoning?: boolean;
-	/** Strict reasoning_effort vocabulary advertised by the server (oMLX discovery). */
+	/** Effort vocabulary advertised by the server. Pending oMLX PR; absent today. */
 	reasoningEffortOptions?: string[];
 	/**
 	 * Template default for `enable_thinking`, present when the template has that
-	 * knob. Carried separately from `reasoning` because the two answer different
-	 * questions: `reasoning` is "can it think", this is "does it take
-	 * enable_thinking". A GLM-family model thinks through `clear_thinking` and
-	 * leaves this absent.
+	 * knob. Separate from `reasoning`: that asks "can it think", this asks "does
+	 * it take enable_thinking". A model that thinks through `clear_thinking` has
+	 * this absent.
 	 */
 	thinkingDefault?: boolean;
 	/** Template default for `preserve_thinking` / inverse of `clear_thinking`. */
@@ -179,31 +174,22 @@ export interface QueryResult {
 }
 
 /**
- * Whether a model belongs in the top block of the list: the operator marked it,
- * either by starring it or by pinning it.
- *
- * Both are set by hand and stay set, which is what makes them safe to rank on.
- * `loaded` is the third state the picker shows and the only one that moves on
- * its own — it flips when a model loads or is evicted, including under the `l`
- * and `u` keys while the picker is open — so it stays label decoration.
+ * Whether a model goes in the top block of the list: the operator starred it or
+ * pinned it. Both are set by hand and stay set, so ranking on them is stable.
+ * `loaded` is excluded: it flips while the picker is open, under the `l` and `u`
+ * keys.
  */
 function isSticky(m: DiscoveredModel): boolean {
 	return m.favorite === true || m.pinned === true;
 }
 
 /**
- * Put the list in the order every picker here shows it: pinned and favorited
- * models together as a block at the top, everything else after them, each block
- * by display name (case-insensitive). Sorts in place and returns the same array.
+ * Order the list the way every picker here shows it: pinned and favorited
+ * models as one block at the top, everything else after, each block by display
+ * name case-insensitively. Sorts in place and returns the same array.
  *
- * The two marks share one block rather than ranking against each other: a
- * starred model is one the user reaches for, a pinned one is one kept resident
- * for the same reason, and neither claim outranks the other. Name order then
- * settles it inside the block, so a long list of favourites is still scannable.
- *
- * Applies to every backend that reports these flags, and so to the list handed to
- * pi's `/model` as well as to `/local-model`; backends that report none keep the
- * plain name order this function degrades to.
+ * The two marks share a block instead of ranking against each other. Backends
+ * that report neither flag get plain name order.
  */
 export function sortModelsForDisplay(
 	models: DiscoveredModel[],
@@ -243,20 +229,14 @@ async function queryOmlx(
 
 		if (entry.is_hidden === true) continue;
 
-		// The label is the operator's alias when one is set, else the id.
-		// oMLX emits model_alias only when it is set (server.py, in the
-		// /v1/models/status builder) and has no display_name on this endpoint at
-		// all -- that field belongs to cluster inventory and model profiles.
+		// The operator's alias when one is set, else the id.
 		const alias = entry.model_alias || entry.id;
 		const configModelType = (entry.config_model_type || type).toLowerCase();
 
 		const thinking = describeThinking(entry);
 		// pi gates the whole thinking control on `reasoning`, so it stays true for
-		// every oMLX model. Whether a model thinks is settled by what the user
-		// observes, not by a pattern match on its template: Nemotron-3.5-Lightning
-		// answers to the toggle while its template names no levels, so any badge
-		// this code could draw would be a guess in both directions. The picker
-		// therefore shows the model type alone and lets the ladder speak for itself.
+		// every oMLX model. No badge is drawn: a template that names no levels can
+		// still answer to the toggle, so any badge would be a guess either way.
 		const reasoning = true;
 		const reasoningEffortOptions =
 			thinking.effortOptions.length > 0 ? thinking.effortOptions : undefined;
@@ -325,9 +305,8 @@ async function queryLmStudio(
 		const format = entry.format || "";
 		const architecture = entry.architecture || "";
 		const reasoning = entry.capabilities?.reasoning ? true : undefined;
-		// No capability badge. LM Studio does advertise `capabilities.reasoning`,
-		// so this one would have been the server's claim rather than ours — say the
-		// word if you want it back. The column carries the model's shape instead.
+		// No capability badge. LM Studio advertises `capabilities.reasoning`, so
+		// this one would have been the server's claim rather than ours.
 		const modelType = [format, rawType, architecture].filter(Boolean).join("/");
 
 		// Append leftExtras to displayName so it appears in the label column
@@ -376,9 +355,9 @@ async function queryOpenAI(
 	);
 	if (!res?.data?.length) return { apiType: "openai", models: [] };
 
-	// llama-swap stamps `owned_by: "llama-swap"` on every card it serves, so
-	// the listing we already fetched identifies it — no extra probe. Knowing it
-	// is llama-swap buys load/unload, which the generic path has neither.
+	// llama-swap stamps `owned_by: "llama-swap"` on every card, so the listing
+	// already fetched identifies it without a second probe. Knowing it is
+	// llama-swap is what makes load and unload available here.
 	const isLlamaSwap = res.data.some(
 		(entry) => entry?.owned_by === "llama-swap",
 	);
@@ -392,26 +371,21 @@ async function queryOpenAI(
 /**
  * Map a plain OpenAI-compatible /v1/models payload to discovered models.
  *
- * Three servers here report more than an id, and they disagree on where to put
- * it: llama.cpp nests a `meta` object (`n_ctx` in tokens, `size` in bytes),
- * vLLM puts the same quantity flat on the card as `max_model_len`, llama-swap
- * mirrors it into `context_length`/`context_window`/`meta.n_ctx` and adds the
- * operator's `name`, live `status` and `capabilities`. The context figures all
- * mean "the window this server will hold you to" — vLLM resolves its number
- * against the KV cache that actually fit, so it is the authoritative figure even
- * when the operator launched with a larger one; llama-swap's is whatever the
- * operator declared in `capabilities.context`, which is the number to honour
- * since llama-swap is the thing answering the request. `size` is display-only.
+ * Three servers report more than an id and disagree on where the context window
+ * goes: llama.cpp nests it in `meta.n_ctx`, vLLM puts it flat on the card as
+ * `max_model_len`, llama-swap mirrors one number into `context_length`,
+ * `context_window` and `meta.n_ctx` and adds the operator's `name`, live
+ * `status` and `capabilities`. `meta.n_ctx` is tried first so llama.cpp is
+ * unaffected by the others. `size` is display-only.
  *
- * Servers advertising neither leave both undefined, so the right-hand column
- * of the model list stays blank (and provider.ts falls back to its default
- * context window).
+ * A server that reports neither leaves the right-hand column blank, and
+ * provider.ts falls back to its default context window.
  */
 export function mapOpenAiModels(data: OpenAIModelEntry[]): DiscoveredModel[] {
 	const models: DiscoveredModel[] = [];
-	// LoRA cards report no context of their own, so keep the lineage and the
-	// base models' contexts around to fill them in from. `parent` always names a
-	// base model, never another adapter, so one lookup is all it takes.
+	// LoRA cards report no context of their own. Keep the base models' contexts
+	// and the parent links to fill them in from. `parent` names a base model and
+	// never another adapter, so one lookup is enough.
 	const contexts = new Map<string, number>();
 	const parents = new Map<string, string>();
 
@@ -420,8 +394,8 @@ export function mapOpenAiModels(data: OpenAIModelEntry[]): DiscoveredModel[] {
 		const vision = advertisedVision(entry);
 		const model: DiscoveredModel = {
 			id: entry.id,
-			// llama-swap's `name` is the operator's own label; every other server
-			// in this path omits it and shows its id.
+			// llama-swap's `name` is the operator's label. Other servers on this
+			// path omit it and show the id.
 			displayName: entry.name?.trim() || entry.id,
 			description: "", // filled below, once every field is known
 			// llama-swap only; llama.cpp and vLLM send no `status`, and a card
@@ -499,9 +473,8 @@ export async function loadModel(
 		case "llamaswap":
 			// llama-swap has no load endpoint: dispatching a request to a model is
 			// what swaps its server in. `/props?model=` is the cheapest route that
-			// dispatches — a GET that asks for properties, so no tokens are
-			// generated, and the process is up and health-checked by the time it
-			// returns (~0.3s here, plus however long the model takes to load).
+			// dispatches: a GET for properties, so no tokens are generated, and the
+			// process is up and health-checked by the time it returns.
 			return execLlamaSwapLoad(baseUrl, apiKey, modelId);
 		case "openai":
 			return { error: "load not supported" };
@@ -607,9 +580,9 @@ async function execApi(
 /**
  * Fire a request whose job is the side effect, not the response.
  *
- * Returns `{ ok: true }` on any 2xx without touching the body — llama-swap's
- * unload answers `OK` as plain text, and parsing it as JSON would turn a
- * successful unload into a reported failure.
+ * Returns `{ ok: true }` on any 2xx without reading the body. llama-swap's
+ * unload answers `OK` as plain text, and parsing that as JSON would report a
+ * successful unload as a failure.
  */
 async function execExpectOk(
 	url: string,
@@ -631,16 +604,14 @@ async function execExpectOk(
 /**
  * Start a model's server by dispatching `/props?model=` at it.
  *
- * A 404 here is ambiguous and the two cases are told apart by who answered:
- * llama-swap's own rejections are its OpenAI-shaped error envelope
- * (`{"src":"llama-swap",...}`), while a 404 from the upstream arrives after
- * the model is already loaded — `/props` is a llama.cpp route, so vLLM and
- * friends do not implement it, and the load still happened. Only the first is
- * a failure; the second is reported as success and the caller's refresh shows
- * the state.
+ * A 404 here is ambiguous, and who answered settles it. llama-swap's own
+ * rejections carry its OpenAI-shaped envelope (`{"src":"llama-swap",...}`) and
+ * mean the model could not be routed. A 404 from the upstream arrives after the
+ * dispatch, so the model did load: `/props` is a llama.cpp route and vLLM and
+ * others do not implement it. Only the first is a failure.
  *
- * No timeout: this blocks while a model loads, which can be minutes for a
- * large one, and the picker is showing "Loading" the whole time.
+ * No timeout. This blocks while the model loads, which is minutes for a large
+ * one.
  */
 async function execLlamaSwapLoad(
 	baseUrl: string,
@@ -653,10 +624,8 @@ async function execLlamaSwapLoad(
 			{ headers: { Authorization: `Bearer ${apiKey}` } },
 		);
 		const own = await llamaSwapOwnError(res);
-		// `own` is the only real failure: llama-swap could not route the model.
-		// Any other status — including an upstream's 404 for a route it does not
-		// implement — arrives after the dispatch, so the model is loaded and the
-		// caller's refresh is what the user judges by.
+		// Anything that is not llama-swap's own rejection means the dispatch
+		// happened, so the model is loaded.
 		if (own) return { error: own };
 		return { ok: true };
 	} catch (err) {
@@ -669,9 +638,8 @@ async function execLlamaSwapLoad(
  * did not come from it.
  *
  * Its rejections are `{"src":"llama-swap","error":{"message":...}}`. A body
- * without that `src` came from the upstream, which is the discriminator that
- * separates "this model does not exist" from "this model exists and answered
- * with something we did not expect".
+ * without that `src` came from the upstream, which is what separates "model
+ * does not exist" from "model exists and answered unexpectedly".
  */
 async function llamaSwapOwnError(res: Response): Promise<string | null> {
 	if (res.ok) return null;
@@ -690,7 +658,7 @@ async function llamaSwapOwnError(res: Response): Promise<string | null> {
 			return parsed.error?.message || "llama-swap rejected the request";
 		}
 	} catch {
-		/* not JSON — an upstream or proxy error page */
+		/* not JSON: an upstream or proxy error page */
 	}
 	return null;
 }
@@ -709,10 +677,10 @@ function formatContext(tokens: number): string {
  * Whether a card advertises image input, or `undefined` when it says nothing
  * about modality.
  *
- * llama-swap emits `capabilities.vision` only when true (it is written out of
- * `capabilities.in`, never as an explicit false), so an absent key cannot be
- * read as text-only — hence the fallback to the modality lists, which are the
- * same config rendered the other way and *do* carry `text` on its own.
+ * llama-swap emits `capabilities.vision` only when true (it comes from
+ * `capabilities.in` and is never written as an explicit false), so an absent
+ * key is not evidence of text-only. The modality list is the fallback, and it
+ * does carry `text` on its own.
  */
 function advertisedVision(entry: OpenAIModelEntry): boolean | undefined {
 	if (entry.capabilities?.vision === true) return true;
@@ -724,8 +692,7 @@ function advertisedVision(entry: OpenAIModelEntry): boolean | undefined {
 /**
  * Right-hand column of the model list for servers that report no more than
  * OpenAI's `/v1/models` requires: `|  88.0G, ctx:  256k`, same field widths as
- * the oMLX backend. Fields that are missing are left out; when both are the
- * column is empty.
+ * oMLX. Missing fields are left out; when all are missing the column is empty.
  */
 function formatModelColumn(model: DiscoveredModel): string {
 	const parts: string[] = [];
@@ -737,12 +704,9 @@ function formatModelColumn(model: DiscoveredModel): string {
 }
 
 /**
- * Numeric field from an unvalidated server response.
- *
- * These endpoints are third-party and loose with their own shapes — llama.cpp
- * itself returns `size: ""` (a string) in the sibling `models` array of the
- * very same response — so anything but a positive finite number counts as
- * absent.
+ * Numeric field from an unvalidated server response. These endpoints are
+ * third-party and loose with their own shapes, so only a positive finite number
+ * counts as present.
  */
 function positiveNumber(value: unknown): number | undefined {
 	return typeof value === "number" && Number.isFinite(value) && value > 0

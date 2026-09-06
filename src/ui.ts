@@ -44,12 +44,10 @@ export function formatStatus(result: QueryResult): string | undefined {
 		const loaded = result.models.filter((m) => m.loaded).length;
 		return `${loaded}/${result.models.length} models loaded`;
 	}
-	// llama-swap stamps `status.value` on every card it serves, so the count is
-	// real there and is read off the listing rather than a second request. It is
-	// printed only once something is loaded: a plain OpenAI server sends no load
-	// state at all, and "0/N loaded" would read as a measurement rather than as
-	// silence. Both tiers share the branch because both report through the same
-	// field — llama-swap arrives as `llamaswap`, everything else as `openai`.
+	// llama-swap stamps `status.value` on every card, so the count is real there
+	// and comes off the listing already fetched. Shown once something is loaded.
+	// Both tiers share the branch: same field, llama-swap arriving as `llamaswap`
+	// and the rest as `openai`.
 	if (result.apiType === "llamaswap" || result.apiType === "openai") {
 		const loaded = result.models.filter((m) => m.loaded).length;
 		if (loaded > 0) return `${loaded}/${result.models.length} models loaded`;
@@ -84,7 +82,7 @@ class Border implements Component {
 }
 
 // ============================================================================
-// LocalPickerView — full-screen model picker with load/unload
+// LocalPickerView: full-screen model picker with load/unload
 // ============================================================================
 
 class LocalPickerView implements Focusable {
@@ -162,7 +160,7 @@ class LocalPickerView implements Focusable {
 			if (idx >= 0) this.list.setSelectedIndex(idx);
 		}
 
-		// Wire up select / cancel — these go straight to done()
+		// Wire up select / cancel. These go straight to done().
 		list.onSelect = (item: SelectItem) => {
 			const model = this.models.find((m) => m.id === item.value);
 			if (model) this.done({ type: "select", model });

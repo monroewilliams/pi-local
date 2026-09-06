@@ -3,16 +3,18 @@ export const DEFAULT_LOCAL_BASE_URL = "http://127.0.0.1:1234";
 export function normalizeBaseUrl(raw: string): string {
 	const trimmed = raw.trim().replace(/\/+$/, "");
 	if (!trimmed) throw new Error("Base URL is empty");
-	// Strip trailing /v1 — it's added per-endpoint where needed
+	// Strip trailing /v1. It gets added per endpoint where needed.
 	return trimmed.endsWith("/v1") ? trimmed.slice(0, -3) : trimmed;
 }
 
 /**
- * Provider id for a connection. Clients that pack a model reference as
- * "provider/model" unpack it at the first slash (pi-acp does), so a base URL
- * used verbatim as an id splits on its own scheme. Drop those two slashes:
- * "http://host:8000" → "http:host:8000". Still unambiguous, and http vs
- * https survives — unlike stripping the scheme outright.
+ * Provider id for a connection.
+ *
+ * Some clients unpack a model reference of the form "provider/model" at the
+ * first slash (pi-acp does), so a base URL used verbatim would split on the
+ * slashes in its own scheme. Dropping just the two slashes keeps it whole:
+ * "http://host:8000" becomes "http:host:8000", which still distinguishes
+ * http from https.
  */
 export function encodeProviderId(baseUrl: string): string {
 	return baseUrl.replace(/^(https?):\/\//, "$1:");
@@ -24,14 +26,10 @@ export function decodeProviderId(providerId: string): string {
 }
 
 /**
- * Default key format. Always empty — the user types their key
- * (or leaves blank for no auth).
- *
- * Supports all auth key formats (same as regular Pi auth):
- * - Direct key: "sk-1234567890abcdef"
- * - Env var: "$MY_API_KEY" or "${MY_API_KEY}"
- * - Command: "!security find-generic-password ..."
- * - Empty string for no authentication
+ * API keys are stored in the connection record in any of the formats pi
+ * accepts: a direct key ("sk-..."), an environment reference ("$MY_KEY" or
+ * "${MY_KEY}"), a command ("!security find-generic-password ..."), or empty
+ * for no authentication.
  */
 
 /**

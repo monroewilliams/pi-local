@@ -19,8 +19,9 @@ export interface StoredConnection {
 			reasoning?: boolean;
 			reasoningEffortOptions?: string[];
 			/**
-			 * Cached alongside reasoning so a restart doesn't lose which knob the
-			 * template has — `reasoning` alone cannot rebuild the compat choice.
+			 * Cached with `reasoning` so a restart can rebuild the compat choice.
+			 * `reasoning` says whether the model thinks; this says which knob drives
+			 * it.
 			 */
 			thinkingDefault?: boolean;
 			preserveThinkingDefault?: boolean;

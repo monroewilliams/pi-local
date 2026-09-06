@@ -26,17 +26,17 @@ const PI_THINKING_LEVELS = [
 ] as const;
 
 /**
- * Build a thinkingLevelMap for a server that advertises a strict
- * reasoning_effort vocabulary (oMLX discovery, /v1/models/status).
+ * Build a thinkingLevelMap for a server that advertises a fixed
+ * reasoning_effort vocabulary (oMLX /v1/models/status).
  *
- * The menu is ordered by pi's ladder, not by the order the server happened to
- * enumerate: a template that spells its branches `high … low` would otherwise
- * put the sharpest setting first in the selector. Levels pi has no name for
- * are hidden (null) rather than guessed at, and "none" — how oMLX spells off —
- * becomes `off`. Returns undefined when fewer than two pi levels survive,
- * because one entry is not a menu: gpt-oss advertises exactly ["medium"], and
- * pinning the selector to a single choice the server then ignores is worse
- * than offering the plain on/off toggle.
+ * Output is ordered by pi's ladder, not the server's: a template that lists its
+ * levels `high, low` would otherwise put high first in the menu. Levels pi has
+ * no name for are set to null, which hides them. "none", how oMLX spells off,
+ * maps to `off`.
+ *
+ * Returns undefined when fewer than two pi levels match. One entry is not a
+ * menu: gpt-oss advertises exactly ["medium"], and pinning the selector to a
+ * choice the server ignores is worse than the plain on/off toggle.
  */
 export function buildThinkingLevelMap(
 	options: readonly string[],
@@ -57,23 +57,19 @@ export function buildThinkingLevelMap(
 }
 
 /**
- * The full pi ladder, passed through verbatim as top-level `reasoning_effort`,
- * with `off` mapped to "none".
+ * The full pi ladder, sent verbatim as top-level `reasoning_effort`, with
+ * `off` mapped to "none".
  *
- * Used by two fallbacks. pi offers `xhigh` and `max` only when a model maps
- * them explicitly, so an unmapped model caps out at `high` — a needless ceiling
- * on a server that takes the whole vocabulary. Handing the user the complete
- * list is the useful default: a level the model ignores costs nothing, while a
- * level withheld is a setting nobody can try.
+ * pi only offers `xhigh` and `max` when a model maps them, so an unmapped model
+ * stops at `high`. This map removes that ceiling for servers that accept the
+ * whole vocabulary.
  *
- * llama.cpp accepts all of these, including "max": it forwards the string to
- * the chat template and ignores it when the template doesn't read
- * `reasoning_effort`. The same holds for oMLX on a model that advertised no
- * vocabulary — no vocabulary means no whitelist, so any level passes through.
+ * llama.cpp forwards the string to the chat template and ignores it when the
+ * template does not read `reasoning_effort`. oMLX does the same for a model
+ * that advertises no vocabulary, since no vocabulary means no whitelist.
  *
- * "none" is how thinking goes off: llama.cpp special-cases it into
- * `enable_thinking = false` and drops the kwarg rather than forwarding it, and
- * oMLX from the discovery PR onwards does the same.
+ * "none" turns thinking off: llama.cpp converts it to
+ * `enable_thinking = false` and drops the kwarg.
  */
 export function buildPassthroughThinkingLevelMap(): ThinkingLevelMap {
 	return {
@@ -103,23 +99,13 @@ export function toModel(
 	let compat: Record<string, unknown> | undefined;
 	let thinkingLevelMap: ThinkingLevelMap | undefined;
 	if (apiType === "omlx") {
-		// oMLX reports which knob the chat template reads, and pi's thinkingFormat
-		// selects exactly one wire shape (openai-completions.js: the
-		// qwen-chat-template branch never emits reasoning_effort), so the two are
-		// chosen between rather than combined.
+		// pi's thinkingFormat selects exactly one wire shape (openai-completions.js:
+		// the chat-template branch emits reasoning_effort from $var, the
+		// qwen-chat-template branch emits none), so the effort vocabulary and the
+		// enable_thinking toggle are chosen between, never combined.
 		//
-		// The sets turn out to be disjoint anyway: oMLX only advertises an effort
-		// vocabulary when the template consumes reasoning_effort, which is exactly
-		// the condition under which effort is not inert. Everything else has to be
-		// driven by enable_thinking, and qwen-chat-template sends
-		// `enable_thinking: !!reasoningEffort` — so off becomes false and any
-		// selected level true, with no "none" ever leaving this client.
-		// The ladder is always offered: taking levels away is the costlier mistake,
-		// since a level the template ignores costs nothing while a withheld one is a
-		// setting nobody can try. What the server's answer does decide is the wire
-		// format, because pi's thinkingFormat selects exactly one shape
-		// (openai-completions.js: the chat-template branch emits reasoning_effort
-		// from $var and the qwen-chat-template branch emits none).
+		// oMLX advertises an effort vocabulary only when the template consumes
+		// reasoning_effort, so the two cases do not overlap in practice.
 		const menu = m.reasoningEffortOptions
 			? buildThinkingLevelMap(m.reasoningEffortOptions)
 			: undefined;
@@ -131,16 +117,15 @@ export function toModel(
 			// No named vocabulary. If the template has an enable_thinking switch,
 			// drive it directly: every level above off arrives as
 			// `enable_thinking: true`, so the selector works on a model that takes
-			// no effort values at all.
+			// no effort values.
 			//
-			// chat-template rather than qwen-chat-template: both write
-			// chat_template_kwargs and $var:thinking.enabled resolves to the same
-			// !!reasoningEffort, but qwen-chat-template hardcodes
-			// `preserve_thinking: true` and so overrides a template that clears
-			// history by default. Passing preserve_thinking only when oMLX actually
-			// discovered it leaves the server's own default in charge otherwise.
-			// No omitWhenOff on the toggle — a template that thinks unless told not
-			// to must receive an explicit false.
+			// chat-template, not qwen-chat-template. Both write chat_template_kwargs
+			// and $var:thinking.enabled resolves to the same !!reasoningEffort, but
+			// qwen-chat-template hardcodes `preserve_thinking: true` and would
+			// override a template that clears history by default. preserve_thinking
+			// is passed only when oMLX reported it, so the server default stands
+			// otherwise. No omitWhenOff: a template that thinks unless told not to
+			// has to receive an explicit false.
 			if (m.thinkingDefault !== undefined) {
 				compat = {
 					thinkingFormat: "chat-template" as const,
@@ -152,10 +137,8 @@ export function toModel(
 					},
 				};
 			} else {
-				// Neither a named vocabulary nor an enable_thinking switch — gpt-oss
-				// (one level is no menu) and GLM before the discovery PR. Effort is
-				// the remaining channel, and a template with no whitelist takes any
-				// level the user picks.
+				// No vocabulary and no enable_thinking switch, so effort is the only
+				// channel left. gpt-oss lands here: one level is not a menu.
 				compat = { supportsReasoningEffort: true };
 			}
 		}
@@ -165,21 +148,19 @@ export function toModel(
 		apiType === "llamaswap" ||
 		apiType === "lmstudio"
 	) {
-		// "I don't know which engine this is" (llama.cpp lands here: its
-		// /v1/models advertises nothing about reasoning). No per-format
-		// thinkingFormat, just pi's OpenAI-generic branch: send the selected
-		// level as top-level `reasoning_effort`, "none" to disable thinking.
+		// Unknown engine. llama.cpp lands here because its /v1/models says nothing
+		// about reasoning. No per-format thinkingFormat, so pi takes the
+		// OpenAI-generic branch: the selected level goes out as top-level
+		// `reasoning_effort`, "none" to disable thinking.
 		//
-		// llama-swap is in here on purpose and not by omission: it is a proxy
-		// that rewrites only `model` in the request body and forwards
-		// `reasoning_effort` and `chat_template_kwargs` untouched, so thinking
-		// behaves exactly like whatever engine sits behind it.
+		// llama-swap belongs here too. It rewrites only `model` in the request body
+		// and forwards `reasoning_effort` and `chat_template_kwargs` unchanged, so
+		// thinking behaves like whatever engine is behind it.
 		//
-		// LM Studio comes along for the same ride. Its `capabilities.reasoning`
-		// does name a vocabulary, but across a whole HF cache the only model that
-		// populates it answers `["off", "on"]` — the ladder collapsed to a switch,
-		// which the full map already covers. Trusting it would cap every LM Studio
-		// model at whatever one GGUF happened to report.
+		// LM Studio as well. Its `capabilities.reasoning` does name a vocabulary,
+		// but in a full HF cache the only model that populates it answers
+		// ["off", "on"]. Honouring that would cap every LM Studio model at what one
+		// GGUF reported, and the full map already covers a two-position switch.
 		thinkingLevelMap = buildPassthroughThinkingLevelMap();
 		compat = { supportsReasoningEffort: true };
 	}
@@ -207,14 +188,8 @@ export function toModel(
 /**
  * Seam for request-time thinking decisions. Currently a pass-through.
  *
- * The thinking format is decided once, at discovery, because it follows from a
- * property of the model rather than of the selected level. oMLX's merge
- * (api/utils.py) turns `"none"` into `enable_thinking: False` while every
- * other level forwards `reasoning_effort` alone, so effort switches thinking
- * *off* on any template and switches it *on* only where the template reads
- * `reasoning_effort` — gpt-oss among them. On Qwen, Gemma, LongCat, Ornith and
- * ThinkingCap the level reaches the template through `enable_thinking`, so the
- * same format has to carry every level including off.
+ * The format is decided at discovery, since it follows from the model rather
+ * than the selected level.
  */
 export function adaptModelForRequest(
 	model: Model<"openai-completions">,

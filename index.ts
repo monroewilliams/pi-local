@@ -107,7 +107,7 @@ function registerAllConnections(pi: ExtensionAPI): void {
 			}
 		}
 	} catch {
-		// No connections file yet — fine
+		// No connections file yet. Fine.
 	}
 }
 
@@ -163,7 +163,7 @@ export default function (pi: ExtensionAPI): void {
 									`security delete-generic-password -s 'pi-local' -a '${baseUrl}'`,
 								);
 							} catch {
-								// Ignore errors — keychain entry may not exist
+								// Ignore errors. The keychain entry may not exist.
 							}
 						}
 						removeConnection(baseUrl);
@@ -222,8 +222,9 @@ export default function (pi: ExtensionAPI): void {
 			}
 
 			// Lazy-import heavy modules
-			const { queryConnection, loadModel, unloadModel } =
-				await import("./src/model-picker.ts");
+			const { queryConnection, loadModel, unloadModel } = await import(
+				"./src/model-picker.ts"
+			);
 			const { showLocalPicker } = await import("./src/ui.ts");
 
 			const queryModels = async () =>
@@ -322,19 +323,19 @@ export default function (pi: ExtensionAPI): void {
 			);
 			pi.registerProvider(provider);
 
-			// Set active model. Use the full toModel output (not a bare object)
-			// so compat/thinkingLevelMap survive — setModel stores the object as-is.
+			// Set active model. Pass the full toModel output, not a bare object, so
+			// compat and thinkingLevelMap survive: setModel stores the object as-is.
 			const selected = toModel(model, selectedConn.baseUrl, refreshed.apiType);
 			const success = await pi.setModel(selected);
 
 			if (success) {
-				// pi.setModel() is session-only: AgentSession.setModel() writes
+				// pi.setModel() is session-only. AgentSession.setModel() writes
 				// defaultProvider/defaultModel only when options.persist is set, and the
-				// extension API doesn't expose that flag. Persist the choice here so it
-				// survives a restart. Writes are per-field merges taken under a file
-				// lock, so nothing else in settings.json is affected. Pi's own in-memory
-				// copy stays stale until restart, which only shows up as the "· default"
-				// badge in /model lagging behind.
+				// extension API doesn't expose that flag, so persist the choice here to
+				// survive a restart. Writes are per-field merges under a file lock, so
+				// the rest of settings.json is untouched. Pi's in-memory copy stays
+				// stale until restart, which shows up as the "· default" badge in
+				// /model lagging behind.
 				SettingsManager.create(
 					process.cwd(),
 					getAgentDir(),
@@ -382,7 +383,7 @@ async function addConnectionFlow(
 					`security delete-generic-password -s 'pi-local' -a '${baseUrl}'`,
 				);
 			} catch {
-				// Entry may not exist — ignore
+				// Entry may not exist. Ignore.
 			}
 			const storeCmd = keychainStoreCommand(baseUrl, apiKey);
 			try {
