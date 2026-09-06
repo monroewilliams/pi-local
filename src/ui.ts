@@ -35,7 +35,7 @@ export type LocalPickerAction =
 // Helpers
 // ============================================================================
 
-function formatStatus(result: QueryResult): string | undefined {
+export function formatStatus(result: QueryResult): string | undefined {
 	if (result.apiType === "omlx" && result.status) {
 		const s = result.status;
 		return `oMLX ${s.version ?? "?"}: ${s.models_loaded ?? 0}/${s.models_discovered ?? "?"} loaded, ${s.models_loading ?? 0} loading, using ${s.model_memory_used_formatted ?? "?"} of ${s.model_memory_max_formatted ?? "?"}`;
@@ -44,11 +44,13 @@ function formatStatus(result: QueryResult): string | undefined {
 		const loaded = result.models.filter((m) => m.loaded).length;
 		return `${loaded}/${result.models.length} models loaded`;
 	}
-	// llama-swap reports per-model `status`, so the count is real here too. It
-	// is printed only once something is loaded: a plain OpenAI server sends no
-	// load state at all, and "0/N loaded" would read as a measurement rather
-	// than as silence.
-	if (result.apiType === "openai") {
+	// llama-swap stamps `status.value` on every card it serves, so the count is
+	// real there and is read off the listing rather than a second request. It is
+	// printed only once something is loaded: a plain OpenAI server sends no load
+	// state at all, and "0/N loaded" would read as a measurement rather than as
+	// silence. Both tiers share the branch because both report through the same
+	// field — llama-swap arrives as `llamaswap`, everything else as `openai`.
+	if (result.apiType === "llamaswap" || result.apiType === "openai") {
 		const loaded = result.models.filter((m) => m.loaded).length;
 		if (loaded > 0) return `${loaded}/${result.models.length} models loaded`;
 	}

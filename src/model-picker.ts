@@ -7,7 +7,6 @@ import { describeThinking } from "./thinking.ts";
 interface OmlxModelsStatusResponse {
 	models: Array<{
 		id: string;
-		display_name?: string | null;
 		model_alias?: string | null;
 		max_context_window?: number;
 		max_tokens?: number;
@@ -244,7 +243,11 @@ async function queryOmlx(
 
 		if (entry.is_hidden === true) continue;
 
-		const alias = entry.model_alias || entry.display_name || entry.id;
+		// The label is the operator's alias when one is set, else the id.
+		// oMLX emits model_alias only when it is set (server.py, in the
+		// /v1/models/status builder) and has no display_name on this endpoint at
+		// all -- that field belongs to cluster inventory and model profiles.
+		const alias = entry.model_alias || entry.id;
 		const configModelType = (entry.config_model_type || type).toLowerCase();
 
 		const thinking = describeThinking(entry);
