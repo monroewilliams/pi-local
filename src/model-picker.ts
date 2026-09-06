@@ -179,6 +179,46 @@ export interface QueryResult {
 	status?: OmlxApiStatusResponse;
 }
 
+/**
+ * Whether a model belongs in the top block of the list: the operator marked it,
+ * either by starring it or by pinning it.
+ *
+ * Both are set by hand and stay set, which is what makes them safe to rank on.
+ * `loaded` is the third state the picker shows and the only one that moves on
+ * its own — it flips when a model loads or is evicted, including under the `l`
+ * and `u` keys while the picker is open — so it stays label decoration.
+ */
+function isSticky(m: DiscoveredModel): boolean {
+	return m.favorite === true || m.pinned === true;
+}
+
+/**
+ * Put the list in the order every picker here shows it: pinned and favorited
+ * models together as a block at the top, everything else after them, each block
+ * by display name (case-insensitive). Sorts in place and returns the same array.
+ *
+ * The two marks share one block rather than ranking against each other: a
+ * starred model is one the user reaches for, a pinned one is one kept resident
+ * for the same reason, and neither claim outranks the other. Name order then
+ * settles it inside the block, so a long list of favourites is still scannable.
+ *
+ * Applies to every backend that reports these flags, and so to the list handed to
+ * pi's `/model` as well as to `/local-model`; backends that report none keep the
+ * plain name order this function degrades to.
+ */
+export function sortModelsForDisplay(
+	models: DiscoveredModel[],
+): DiscoveredModel[] {
+	return models.sort((a, b) => {
+		const aSticky = isSticky(a);
+		const bSticky = isSticky(b);
+		if (aSticky !== bSticky) return aSticky ? -1 : 1;
+		return a.displayName.localeCompare(b.displayName, undefined, {
+			sensitivity: "base",
+		});
+	});
+}
+
 // ============================================================================
 // Endpoint Querying (with fallback chain: omlx → lmstudio → openai)
 // ============================================================================
@@ -237,12 +277,7 @@ async function queryOmlx(
 		});
 	}
 
-	// Sort by display name (case-insensitive)
-	models.sort((a, b) =>
-		a.displayName.localeCompare(b.displayName, undefined, {
-			sensitivity: "base",
-		}),
-	);
+	sortModelsForDisplay(models);
 
 	// Build descriptions with right-aligned numeric fields
 	for (const model of models) {
@@ -308,12 +343,7 @@ async function queryLmStudio(
 		});
 	}
 
-	// Sort by display name (case-insensitive)
-	models.sort((a, b) =>
-		a.displayName.localeCompare(b.displayName, undefined, {
-			sensitivity: "base",
-		}),
-	);
+	sortModelsForDisplay(models);
 
 	// Build descriptions with right-aligned numeric fields
 	for (const model of models) {
