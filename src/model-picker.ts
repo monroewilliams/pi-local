@@ -19,6 +19,7 @@ interface OmlxModelsStatusResponse {
 		pinned?: boolean;
 		is_favorite?: boolean;
 		is_hidden?: boolean;
+		is_helper?: boolean;
 		estimated_size?: number;
 	}>;
 }
@@ -228,6 +229,10 @@ async function queryOmlx(
 		if (type !== "llm" && type !== "vlm") continue;
 
 		if (entry.is_hidden === true) continue;
+		// oMLX flags speculative-decoding drafters (DFlash, MTP heads, assistant
+		// models) with is_helper whether or not hide_helper_models is on. They pass
+		// the llm/vlm check but fail to load as chat models.
+		if (entry.is_helper === true) continue;
 
 		// The operator's alias when one is set, else the id.
 		const alias = entry.model_alias || entry.id;
